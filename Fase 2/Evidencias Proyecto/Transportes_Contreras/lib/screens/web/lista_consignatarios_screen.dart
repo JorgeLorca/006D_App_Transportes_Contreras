@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../models/consignatario.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/csv_exporter.dart';
 import 'consignatario_form_screen.dart';
+import 'modificar/consignatario_modificar_screen.dart';
 
 class ListaConsignatariosScreen extends StatefulWidget {
   const ListaConsignatariosScreen({super.key});
@@ -83,6 +85,8 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
             'calle': calle,
             'comuna': nombreComuna,
             'region': nombreRegion,
+            'comuna_id': (map['comuna_id'] ?? '').toString(),
+            'region_id': (map['region_id'] ?? '').toString(),
             'creado_en': (map['created_at'] ?? map['creado_en'] ?? '').toString(),
           };
         }).toList();
@@ -171,6 +175,31 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
       encabezados: encabezados,
       filas: filas,
     );
+  }
+
+  /// Abre la screen de edición, precargada con los datos de [item] (el Map
+  /// que usa la tarjeta). Si vuelve con `true` (se guardó algo), recarga la
+  /// lista desde Supabase.
+  Future<void> _abrirFormularioEdicion(Map<String, dynamic> item) async {
+    final consignatarioExistente = Consignatario(
+      id: item['id'],
+      nombreEmpresa: item['nombre'] as String,
+      direccion: item['calle'] as String,
+      comunaId: item['comuna_id'] as String,
+      regionId: item['region_id'] as String,
+    );
+
+    final actualizado = await Navigator.of(context).push<bool>(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => ConsignatarioModificarScreen(consignatario: consignatarioExistente),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+    );
+
+    if (actualizado == true) {
+      _cargarConsignatariosDesdeSupabase();
+    }
   }
 
   Future<void> _eliminarConsignatario(Map<String, dynamic> item) async {
@@ -567,9 +596,20 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
                             icon: const Icon(Icons.more_vert, size: 18, color: Color(0xFF94A3B8)),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             onSelected: (accion) {
+                              if (accion == 'modificar') _abrirFormularioEdicion(item);
                               if (accion == 'eliminar') _eliminarConsignatario(item);
                             },
                             itemBuilder: (ctx) => [
+                              PopupMenuItem(
+                                value: 'modificar',
+                                child: Row(
+                                  children: const [
+                                    Icon(Icons.edit_outlined, size: 16, color: AppColors.primary),
+                                    SizedBox(width: 8),
+                                    Text('Modificar Consignatario', style: TextStyle(fontSize: 12.5, color: AppColors.primary, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
                               PopupMenuItem(
                                 value: 'eliminar',
                                 child: Row(

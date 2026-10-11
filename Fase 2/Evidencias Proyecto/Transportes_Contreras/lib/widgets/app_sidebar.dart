@@ -39,6 +39,7 @@ class AppSidebar extends StatefulWidget {
 
 class _AppSidebarState extends State<AppSidebar> {
   bool _gestionExpandida = true;
+  bool _cargasExpandida = true;
 
   Future<void> _confirmarCerrarSesion(BuildContext context) async {
     final bool? confirmar = await showDialog<bool>(
@@ -112,10 +113,40 @@ class _AppSidebarState extends State<AppSidebar> {
                     isSelected: widget.selectedIndex == 0,
                     onTap: () => widget.onItemSelected?.call(0),
                   ),
-                  _SidebarButton(
-                    item: kAdminMenuItems[1],
-                    isSelected: widget.selectedIndex == 1,
-                    onTap: () => widget.onItemSelected?.call(1),
+
+                  // Grupo colapsable: Cargas
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                    child: Theme(
+                      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                      child: ExpansionTile(
+                        initiallyExpanded: _cargasExpandida,
+                        onExpansionChanged: (exp) => setState(() => _cargasExpandida = exp),
+                        tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+                        leading: Icon(kAdminMenuItems[1].icon, size: 19, color: AppSidebar.inactiveText),
+                        title: Text(
+                          kAdminMenuItems[1].label,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                        trailing: Icon(
+                          _cargasExpandida ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                          color: AppSidebar.inactiveText,
+                          size: 18,
+                        ),
+                        children: [
+                          _buildSubmenuItem(
+                            label: 'Asignar Viaje',
+                            icon: Icons.assignment_ind_outlined,
+                            isSelected: widget.selectedIndex == 14,
+                            onTap: () => widget.onItemSelected?.call(14),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
 
                   // Grupo colapsable: Gestión Administrativa

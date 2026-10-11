@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/admin_shell.dart';
+import 'asignar_viaje_screen.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -137,7 +138,15 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 Row(
                   children: [
                     ElevatedButton.icon(
-                      onPressed: () {},
+                      // push (no pushReplacement) para que "Descartar" en la
+                      // pantalla de asignación vuelva al panel de control.
+                      onPressed: () => Navigator.of(context).push(
+                        PageRouteBuilder(
+                          pageBuilder: (_, __, ___) => const AsignarViajeScreen(),
+                          transitionDuration: Duration.zero,
+                          reverseTransitionDuration: Duration.zero,
+                        ),
+                      ),
                       icon: const Icon(Icons.add, size: 16, color: Colors.white),
                       label: const Text('NUEVA CARGA', style: TextStyle(color: Colors.white)),
                       style: ElevatedButton.styleFrom(

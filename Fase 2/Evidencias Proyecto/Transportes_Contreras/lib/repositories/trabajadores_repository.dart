@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../models/opcion_viaje.dart';
 import '../models/trabajador.dart';
 import 'repository_exception.dart';
 
@@ -24,6 +25,23 @@ class TrabajadoresRepository {
   /// correctas y la tabla existe. (Con RLS activo puede devolver 0 filas.)
   Future<void> probarConexion() async {
     await _client.from(_tabla).select().limit(1);
+  }
+
+  /// Conductores para el select de Asignar Viaje. El id es el RUT (PK de
+  /// `conductores`), que es lo que se guarda en `viajes.conductor_rut`.
+  Future<List<OpcionViaje>> obtenerOpcionesViaje() async {
+    final data = await _client
+        .from(_tabla)
+        .select('rut, nombre_completo')
+        .order('nombre_completo');
+    return (data as List).map((f) {
+      final fila = f as Map<String, dynamic>;
+      final rut = fila['rut'] as String;
+      return OpcionViaje(
+        id: rut,
+        nombre: '${fila['nombre_completo']} ($rut)',
+      );
+    }).toList();
   }
 
   /// Sube los documentos (si hay) y luego inserta al trabajador con sus rutas.

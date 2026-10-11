@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../models/camion.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/search_filter_bar.dart';
 import 'camion_form_screen.dart';
+import 'modificar/camion_modificar_screen.dart';
 
 class ListaCamionesScreen extends StatefulWidget {
   const ListaCamionesScreen({super.key});
@@ -45,9 +47,9 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final data = await Supabase.instance.client
-          .from('camiones')
-          .select('id, patente, marca, modelo, estado');
+      final data = await Supabase.instance.client.from('camiones').select(
+          'id, patente, marca, modelo, anio, estado, url_revision_tecnica, '
+          'url_permiso_circulacion, url_seguro_soap, url_padron');
 
       if (mounted) {
         final List<dynamic> listaRemota = data as List<dynamic>? ?? [];
@@ -59,6 +61,12 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
             'patente': (map['patente'] ?? 'S/P').toString(),
             'marca': (map['marca'] ?? 'Genérico').toString(),
             'modelo': (map['modelo'] ?? 'S/M').toString(),
+            'anio': map['anio'],
+            'estado': (map['estado'] ?? 'disponible').toString(),
+            'url_revision_tecnica': (map['url_revision_tecnica'] ?? '').toString(),
+            'url_permiso_circulacion': (map['url_permiso_circulacion'] ?? '').toString(),
+            'url_seguro_soap': (map['url_seguro_soap'] ?? '').toString(),
+            'url_padron': (map['url_padron'] ?? '').toString(),
             'disponible': estadoStr == 'disponible' || estadoStr == 'activo',
           };
         }).toList();
@@ -78,6 +86,46 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  /// Convierte un valor de [item] a `null` si viene vacío (así es como el
+  /// mapeo de la lista representa los campos nulos: '' en vez de null).
+  String? _nullSiVacio(dynamic v) {
+    final texto = (v ?? '').toString();
+    return texto.isEmpty ? null : texto;
+  }
+
+  /// Abre la screen de edición, precargada con los datos de [item] (el Map
+  /// que usa la tarjeta). Si vuelve con `true` (se guardó algo), recarga la
+  /// lista desde Supabase.
+  Future<void> _abrirFormularioEdicion(Map<String, dynamic> item) async {
+    final anioRaw = item['anio'];
+    final anio = anioRaw is int ? anioRaw : int.tryParse('$anioRaw') ?? DateTime.now().year;
+
+    final camionExistente = Camion(
+      id: item['id'],
+      patente: item['patente'] as String,
+      marca: item['marca'] as String,
+      modelo: item['modelo'] as String,
+      anio: anio,
+      estado: (item['estado'] ?? 'disponible').toString(),
+      urlRevisionTecnica: _nullSiVacio(item['url_revision_tecnica']),
+      urlPermisoCirculacion: _nullSiVacio(item['url_permiso_circulacion']),
+      urlSeguroSoap: _nullSiVacio(item['url_seguro_soap']),
+      urlPadron: _nullSiVacio(item['url_padron']),
+    );
+
+    final actualizado = await Navigator.of(context).push<bool>(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => CamionModificarScreen(camion: camionExistente),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+    );
+
+    if (actualizado == true) {
+      _cargarCamionesDesdeSupabase();
     }
   }
 
@@ -358,9 +406,20 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
                                   icon: const Icon(Icons.more_vert, size: 18, color: Color(0xFF94A3B8)),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                   onSelected: (accion) {
+                                    if (accion == 'modificar') _abrirFormularioEdicion(item);
                                     if (accion == 'eliminar') _eliminarCamion(item);
                                   },
                                   itemBuilder: (ctx) => [
+                                    PopupMenuItem(
+                                      value: 'modificar',
+                                      child: Row(
+                                        children: const [
+                                          Icon(Icons.edit_outlined, size: 16, color: AppColors.primary),
+                                          SizedBox(width: 8),
+                                          Text('Modificar Camión', style: TextStyle(fontSize: 12.5, color: AppColors.primary, fontWeight: FontWeight.bold)),
+                                        ],
+                                      ),
+                                    ),
                                     PopupMenuItem(
                                       value: 'eliminar',
                                       child: Row(

@@ -12,6 +12,8 @@
 /// La ubicación ([regionId]/[comunaId]) es FK a las tablas de referencia
 /// `regiones` y `comunas` (ver `Region` y `Comuna`), igual que en
 /// Consignatario.
+/// 
+
 class Cliente {
   const Cliente({
     this.id,

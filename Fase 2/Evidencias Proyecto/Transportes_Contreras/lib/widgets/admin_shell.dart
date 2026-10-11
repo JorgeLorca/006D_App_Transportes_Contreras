@@ -6,6 +6,7 @@ import '../screens/web/lista_clientes_screen.dart';
 import '../screens/web/lista_trabajadores_screen.dart';
 import '../screens/web/admin_home_screen.dart';
 import '../screens/web/lista_consignatarios_screen.dart';
+import '../screens/web/asignar_viaje_screen.dart';
 
 class AdminShell extends StatefulWidget {
   const AdminShell({
@@ -66,7 +67,22 @@ class _AdminShellState extends State<AdminShell> {
       return;
     }
 
-    if ((index > 0 && index < 10) || index > 13) {
+    // 14 = Cargas > Asignar Viaje. Se abre con push (no pushReplacement) para
+    // que "Descartar" vuelva a la pantalla desde la que se llegó.
+    if (index == 14) {
+      // Si ya estamos en Asignar Viaje no se recarga (se perdería lo digitado).
+      if (_currentIndex == 14) return;
+      Navigator.of(context).push(
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) => const AsignarViajeScreen(),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+        ),
+      );
+      return;
+    }
+
+    if ((index > 0 && index < 10) || index > 14) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Módulo $index en construcción.')),
       );
