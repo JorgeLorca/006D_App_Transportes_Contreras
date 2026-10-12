@@ -46,7 +46,7 @@ class TransportesContrerasApp extends StatelessWidget {
           ),
         ),
       ),
-      // EL RUTEO AUTOMÁTICO:
+      // EL RUTEO AUTOMÁTICO SE HACE EN CADA PANTALLA, POR LO QUE NO ES NECESARIO DEFINIR RUTAS AQUÍ
       // Si se compila/abre en Navegador (Chrome) -> Muestra el login de Oficina
       // Si se compila/abre en Celular (Android/iOS) -> Muestra el login de Choferes
       home: kIsWeb ? const AdminLoginScreen() : const LoginScreen(),
