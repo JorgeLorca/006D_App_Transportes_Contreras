@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_colors.dart';
+// Importa tu pantalla de Login (ajusta la ruta según la ubicación de tu archivo si difiere):
+import '../screens/web/admin_login_screen.dart';
 
 class SidebarMenuItem {
   const SidebarMenuItem({required this.icon, required this.label, this.routeIndex});
@@ -85,12 +88,34 @@ class _AppSidebarState extends State<AppSidebar> {
     );
 
     if (confirmar == true && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sesión cerrada correctamente.'),
-          backgroundColor: Color(0xFF0F172A),
-        ),
-      );
+      try {
+        // 1. Invalidar token y sesión en Supabase
+        await Supabase.instance.client.auth.signOut();
+
+        if (!context.mounted) return;
+
+        // 2. Notificación visual
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sesión cerrada correctamente.'),
+            backgroundColor: Color(0xFF0F172A),
+          ),
+        );
+
+        // 3. Redirigir al Login y vaciar la pila de rutas
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const AdminLoginScreen()),
+          (route) => false,
+        );
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al cerrar sesión: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
