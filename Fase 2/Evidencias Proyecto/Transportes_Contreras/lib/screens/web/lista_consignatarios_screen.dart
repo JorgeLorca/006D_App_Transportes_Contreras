@@ -747,9 +747,9 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
     final enlaces = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildFooterLink('Términos de Servicio'),
-        const SizedBox(width: 14),
-        _buildFooterLink('Soporte Operacional'),
+        _buildFooterLink(esPantallaPequena ? 'Términos de Servicio' : 'Términos de Servicio'),
+        const SizedBox(width: 12),
+        _buildFooterLink(esPantallaPequena ? 'Soporte' : 'Soporte Operacional'),
       ],
     );
 
@@ -794,11 +794,13 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
 
     return Column(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 8,
           children: [
             enlaces,
-            const SizedBox(width: 16),
             servidorSeguro,
           ],
         ),
