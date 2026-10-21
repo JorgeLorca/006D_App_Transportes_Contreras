@@ -11,22 +11,13 @@ import '../../../widgets/admin_shell.dart';
 import '../../../widgets/confirm_dialog.dart';
 import '../../../widgets/form_section_card.dart';
 
+import '../../../utils/formato.dart';
+
 /// Screen dedicada a **modificar** un consignatario ya existente.
-///
-/// Es una screen separada de [ConsignatarioFormScreen] (que solo crea
-/// consignatarios nuevos) para no mezclar la lógica de alta con la de
-/// edición. Recibe el [consignatario] a editar, precarga sus datos
-/// (incluyendo Región y Comuna, cargadas desde Supabase) y al confirmar
-/// hace un `UPDATE` sobre esa fila (por [Consignatario.id]) con
-/// [ConsignatariosRepository.actualizar]. Al terminar vuelve al listado
-/// (`Navigator.pop(true)`) para que se recarguen los datos.
 class ConsignatarioModificarScreen extends StatefulWidget {
   const ConsignatarioModificarScreen({super.key, required this.consignatario, this.onActualizar});
 
-  /// El consignatario a editar. Debe traer [Consignatario.id] (viene de Supabase).
   final Consignatario consignatario;
-
-  /// Callback opcional que recibe el consignatario ya actualizado.
   final ValueChanged<Consignatario>? onActualizar;
 
   @override
@@ -42,12 +33,9 @@ class _ConsignatarioModificarScreenState extends State<ConsignatarioModificarScr
   final _repo = ConsignatariosRepository();
   final _ubicacionesRepo = UbicacionesRepository();
 
-  // Datos cargados desde Supabase.
   List<Region> _regiones = [];
   List<Comuna> _comunas = [];
 
-  // Valores seleccionados de los Dropdowns (ids, no texto). Se preseleccionan
-  // con la ubicación guardada una vez que las listas terminan de cargar.
   String? _selectedRegionId;
   String? _selectedComunaId;
 
@@ -92,9 +80,6 @@ class _ConsignatarioModificarScreenState extends State<ConsignatarioModificarScr
     }
   }
 
-  /// Preselecciona la región guardada y, una vez cargadas sus comunas, la
-  /// comuna guardada. Si el id guardado ya no existe en la tabla de
-  /// referencia, queda sin seleccionar y el usuario deberá elegir una.
   Future<void> _preseleccionarUbicacion() async {
     final regionExiste = _regiones.any((r) => r.id == widget.consignatario.regionId);
     if (!regionExiste) return;
@@ -128,7 +113,7 @@ class _ConsignatarioModificarScreenState extends State<ConsignatarioModificarScr
   void _onRegionChanged(String? regionId) {
     setState(() {
       _selectedRegionId = regionId;
-      _selectedComunaId = null; // Resetea la comuna al cambiar de región
+      _selectedComunaId = null;
       _comunas = [];
     });
     if (regionId != null) _cargarComunas(regionId);
@@ -151,15 +136,13 @@ class _ConsignatarioModificarScreenState extends State<ConsignatarioModificarScr
 
     final consignatarioActualizado = Consignatario(
       id: widget.consignatario.id,
-      nombreEmpresa: _nombreEmpresaCtrl.text.trim(),
-      direccion: _direccionCtrl.text.trim(),
+      nombreEmpresa: capitalizarTexto(_nombreEmpresaCtrl.text),
+      direccion: capitalizarTexto(_direccionCtrl.text),
       comunaId: _selectedComunaId!,
       regionId: _selectedRegionId!,
       creadoEn: widget.consignatario.creadoEn,
     );
 
-    // Nombres legibles para el resumen del diálogo (los ids no le dicen
-    // nada al usuario).
     final regionNombre = _regiones
         .firstWhere((r) => r.id == _selectedRegionId, orElse: () => const Region(id: '', nombre: '—'))
         .nombre;
@@ -191,7 +174,6 @@ class _ConsignatarioModificarScreenState extends State<ConsignatarioModificarScr
         'Consignatario "${consignatarioActualizado.nombreEmpresa}" actualizado correctamente',
         AppColors.success,
       );
-      // Vuelve al listado para que se recarguen los datos.
       Navigator.of(context).pop(true);
     } on RepositoryException catch (e) {
       if (!mounted) return;
@@ -209,63 +191,59 @@ class _ConsignatarioModificarScreenState extends State<ConsignatarioModificarScr
 
   @override
   Widget build(BuildContext context) {
+    final double anchoPantalla = MediaQuery.of(context).size.width;
+    final bool esPantallaPequena = anchoPantalla < 750;
+
     return AdminShell(
-      selectedIndex: 1, // "Cargas" en kAdminMenuItems
+      selectedIndex: 13,
+      showBackButton: true, // Flecha estándar unificada
       title: 'Modificar Consignatario',
       subtitle: 'Actualice la información legal y de ubicación de la empresa receptora de la mercancía.',
       eyebrow: 'GESTIÓN DE CARGAS',
       eyebrowIcon: Icons.local_shipping_outlined,
-      actions: [
-        TextButton.icon(
-          onPressed: () => Navigator.of(context).maybePop(),
-          icon: const Icon(Icons.arrow_back, size: 15),
-          label: const Text('Volver al listado'),
-          style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
-        ),
-      ],
       child: Form(
         key: _formKey,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                FormSectionCard(
-                  icon: Icons.apartment_outlined,
-                  title: 'Datos del Consignatario',
-                  subtitle: 'Estás modificando un consignatario existente.',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      LabeledTextField(
-                        label: 'Nombre empresa',
-                        controller: _nombreEmpresaCtrl,
-                        hint: 'Ej: Distribuidora Nacional de Alimentos S.A.',
-                        icon: Icons.apartment_outlined,
-                        validator: (v) => _requerido(v, 'Ingresa el nombre de la empresa'),
-                      ),
-                      const SizedBox(height: 16),
-                      LabeledTextField(
-                        label: 'Dirección (Calle y Número)',
-                        controller: _direccionCtrl,
-                        hint: 'Ej: Av. Américo Vespucio 1234, Of. 201',
-                        icon: Icons.location_on_outlined,
-                        validator: (v) => _requerido(v, 'Ingresa la dirección'),
-                      ),
-                      const SizedBox(height: 16),
+          padding: EdgeInsets.all(esPantallaPequena ? 16.0 : 24.0),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FormSectionCard(
+                    icon: Icons.apartment_outlined,
+                    title: 'Datos del Consignatario',
+                    subtitle: 'Estás modificando un consignatario existente.',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        LabeledTextField(
+                          label: 'Nombre empresa',
+                          controller: _nombreEmpresaCtrl,
+                          hint: 'Ej: Distribuidora Nacional de Alimentos S.A.',
+                          icon: Icons.apartment_outlined,
+                          validator: (v) => _requerido(v, 'Ingresa el nombre de la empresa'),
+                        ),
+                        const SizedBox(height: 16),
+                        LabeledTextField(
+                          label: 'Dirección (Calle y Número)',
+                          controller: _direccionCtrl,
+                          hint: 'Ej: Av. Américo Vespucio 1234, Of. 201',
+                          icon: Icons.location_on_outlined,
+                          validator: (v) => _requerido(v, 'Ingresa la dirección'),
+                        ),
+                        const SizedBox(height: 16),
 
-                      if (_errorRegiones != null) _buildErrorRegiones(),
+                        if (_errorRegiones != null) _buildErrorRegiones(),
 
-                      // Región y Comuna en selects independientes, cargados
-                      // desde Supabase y preseleccionados con lo guardado.
-                      if (_errorRegiones == null)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: LabeledDropdownField(
+                        // Región y Comuna responsivos
+                        if (_errorRegiones == null)
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final bool esAncho = constraints.maxWidth > 550;
+
+                              final campoRegion = LabeledDropdownField(
                                 label: 'Región',
                                 value: _selectedRegionId,
                                 items: _regiones.map((r) => DropdownOption(r.id, r.nombre)).toList(),
@@ -274,11 +252,9 @@ class _ConsignatarioModificarScreenState extends State<ConsignatarioModificarScr
                                 loading: _cargandoRegiones,
                                 onChanged: _onRegionChanged,
                                 validator: (v) => v == null ? 'Selecciona una región' : null,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: LabeledDropdownField(
+                              );
+
+                              final campoComuna = LabeledDropdownField(
                                 label: 'Comuna',
                                 value: _selectedComunaId,
                                 items: _comunas.map((c) => DropdownOption(c.id, c.nombre)).toList(),
@@ -288,77 +264,101 @@ class _ConsignatarioModificarScreenState extends State<ConsignatarioModificarScr
                                 loading: _cargandoComunas,
                                 onChanged: (v) => setState(() => _selectedComunaId = v),
                                 validator: (v) => v == null ? 'Selecciona una comuna' : null,
+                              );
+
+                              if (esAncho) {
+                                return Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(child: campoRegion),
+                                    const SizedBox(width: 16),
+                                    Expanded(child: campoComuna),
+                                  ],
+                                );
+                              }
+
+                              return Column(
+                                children: [
+                                  campoRegion,
+                                  const SizedBox(height: 16),
+                                  campoComuna,
+                                ],
+                              );
+                            },
+                          ),
+
+                        const SizedBox(height: 24),
+                        const Divider(color: AppColors.border),
+                        const SizedBox(height: 18),
+
+                        // Botón de actualizar (sin botón redundante de volver)
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final bool esCelular = constraints.maxWidth < 450;
+                            final botonActualizar = ElevatedButton.icon(
+                              onPressed: _guardando ? null : _actualizar,
+                              icon: _guardando
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Icon(Icons.save_outlined, size: 16),
+                              label: Text(_guardando ? 'ACTUALIZANDO...' : 'ACTUALIZAR CONSIGNATARIO'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                                textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                               ),
-                            ),
-                          ],
+                            );
+
+                            if (esCelular) {
+                              return SizedBox(
+                                width: double.infinity,
+                                child: botonActualizar,
+                              );
+                            }
+
+                            return Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                botonActualizar,
+                              ],
+                            );
+                          },
                         ),
-                      const SizedBox(height: 20),
-                      const Divider(color: AppColors.border),
-                      const SizedBox(height: 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: _guardando ? null : () => Navigator.of(context).maybePop(),
-                            icon: const Icon(Icons.close, size: 16),
-                            label: const Text('Cancelar/Volver'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.textPrimary,
-                              side: const BorderSide(color: AppColors.border),
-                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            onPressed: _guardando ? null : _actualizar,
-                            icon: _guardando
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                  )
-                                : const Icon(Icons.save_outlined, size: 16),
-                            label: Text(_guardando ? 'ACTUALIZANDO...' : 'ACTUALIZAR CONSIGNATARIO'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-                              textStyle: const TextStyle(fontWeight: FontWeight.w700),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 20),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceMuted,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: const Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.apartment_outlined, size: 18, color: AppColors.textSecondary),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Asegúrese de que el nombre de la empresa coincida exactamente con la razón '
-                          'social registrada ante el Servicio de Impuestos Internos (SII) para evitar '
-                          'demoras en los procesos de despacho y recepción.',
-                          style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+                  const SizedBox(height: 20),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceMuted,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.apartment_outlined, size: 18, color: AppColors.textSecondary),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Asegúrese de que el nombre de la empresa coincida exactamente con la razón '
+                            'social registrada ante el Servicio de Impuestos Internos (SII) para evitar '
+                            'demoras en los procesos de despacho y recepción.',
+                            style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

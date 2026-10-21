@@ -10,6 +10,8 @@ import 'screens/login_screen.dart'; // El login de los conductores (Móvil)
 import 'screens/web/admin_login_screen.dart'; // El login de Christian/Oficina (Web)
 import 'widgets/admin_shell.dart'; // Contenedor principal con AppSidebar (Web)
 
+import 'screens/web/admin_home_screen.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await iniciarSupabase();
@@ -57,19 +59,17 @@ class AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Si no es Web (móvil Android), va directo a la pantalla de chofer
     if (!kIsWeb) {
       return const LoginScreen();
     }
 
-    // En Web, escuchamos la recuperación reactiva de la sesión desde localStorage
     return StreamBuilder<AuthState>(
       stream: Supabase.instance.client.auth.onAuthStateChange,
       builder: (context, snapshot) {
         final session = Supabase.instance.client.auth.currentSession;
 
         if (session != null) {
-          return const AdminShell();
+          return const AdminHomeScreen(); // <-- Cambiado de AdminShell() a AdminHomeScreen()
         }
 
         return const AdminLoginScreen();

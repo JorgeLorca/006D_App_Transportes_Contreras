@@ -18,18 +18,6 @@ import '../../widgets/form_section_card.dart';
 
 /// Formulario de asignación de un viaje a un conductor para el panel admin
 /// web de Transportes Contreras.
-///
-/// Es la ETAPA 1 del flujo: el admin elige cliente (origen), consignatario
-/// (destino), conductor y camión. Luego el conductor ve el viaje en su app,
-/// lo inicia y, al terminar, completa el resto de los datos.
-///
-/// Todos los selects se cargan desde Supabase (`clientes`, `consignatarios`,
-/// `conductores`, `camiones`, `regiones`) y se guardan ids (en conductores,
-/// el RUT). Las direcciones de origen y destino se autocompletan al elegir
-/// el cliente y el consignatario; son de solo lectura y no se guardan en
-/// `viajes` (se obtienen siempre desde su tabla de origen).
-///
-/// Al confirmar, [ViajesRepository] inserta el viaje en la tabla `viajes`.
 class AsignarViajeScreen extends StatefulWidget {
   const AsignarViajeScreen({super.key, this.onAsignar});
 
@@ -96,7 +84,6 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
     super.dispose();
   }
 
-  /// Carga desde Supabase todas las listas que alimentan los selects.
   Future<void> _cargarOpciones() async {
     setState(() {
       _cargandoOpciones = true;
@@ -142,7 +129,6 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
 
   String _nombreDe(List<OpcionViaje> lista, String? id) => _buscar(lista, id)?.nombre ?? '—';
 
-  /// Hint del select: si ya cargó bien pero no hay registros, lo dice.
   String _hintSelect(String normal, String sinRegistros, bool vacio) =>
       (!_cargandoOpciones && _errorOpciones == null && vacio) ? sinRegistros : normal;
 
@@ -258,8 +244,6 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
       observacionesAdmin: observaciones.isEmpty ? null : observaciones,
     );
 
-    // Nombres legibles para el resumen del diálogo (los ids no le dicen
-    // nada al usuario).
     final regionNombre = _regiones
         .firstWhere((r) => r.id == _regionId, orElse: () => const Region(id: '', nombre: '—'))
         .nombre;
@@ -310,38 +294,40 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
     }
   }
 
-  void _descartar() => Navigator.of(context).maybePop();
-
   @override
   Widget build(BuildContext context) {
+    final double anchoPantalla = MediaQuery.of(context).size.width;
+    final bool esPantallaPequena = anchoPantalla < 750;
+
     return AdminShell(
-      selectedIndex: 14, // "Cargas > Asignar Viaje" en el sidebar
+      selectedIndex: 14,
+      showBackButton: false,
       title: 'Asignar Viaje a Trabajador',
       child: Form(
         key: _formKey,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(esPantallaPequena ? 16.0 : 24.0),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1200),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildHero(),
+                  _buildHero(esPantallaPequena),
                   const SizedBox(height: 20),
                   if (_errorOpciones != null) ...[
                     _buildErrorOpciones(),
                     const SizedBox(height: 20),
                   ],
-                  _buildDetallesCliente(),
+                  _buildDetallesCliente(esPantallaPequena),
                   const SizedBox(height: 20),
-                  _buildRutaYHorario(),
+                  _buildRutaYHorario(esPantallaPequena),
                   const SizedBox(height: 20),
-                  _buildAsignacionRecursos(),
+                  _buildAsignacionRecursos(esPantallaPequena),
                   const SizedBox(height: 20),
                   _buildObservaciones(),
                   const SizedBox(height: 20),
-                  _buildFooterAcciones(),
+                  _buildFooterAcciones(esPantallaPequena),
                 ],
               ),
             ),
@@ -351,7 +337,26 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
     );
   }
 
-  Widget _buildHero() {
+  Widget _buildHero(bool esPantallaPequena) {
+    final badgeSistema = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.success.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.circle, size: 7, color: Color(0xFF4ADE80)),
+          SizedBox(width: 6),
+          Text(
+            'SISTEMA OPERATIVO',
+            style: TextStyle(color: Color(0xFF4ADE80), fontWeight: FontWeight.w700, fontSize: 10.5),
+          ),
+        ],
+      ),
+    );
+
     return Container(
       width: double.infinity,
       clipBehavior: Clip.antiAlias,
@@ -364,10 +369,6 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
         ),
       ),
       child: Stack(
-        // passthrough: el Wrap hereda el ancho completo del hero; con el ajuste
-        // por defecto (loose) se encogía a su contenido y la columna derecha
-        // quedaba pegada al texto en vez de al borde derecho.
-        fit: StackFit.passthrough,
         children: [
           Positioned(
             right: -20,
@@ -376,15 +377,13 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
           ),
           Padding(
             padding: const EdgeInsets.all(28),
-            child: Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              runSpacing: 20,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 640),
-                  child: Column(
+                if (!esPantallaPequena)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -405,58 +404,52 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      RichText(
-                        text: const TextSpan(
-                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 30, height: 1.15),
-                          children: [
-                            TextSpan(text: 'Asignar Viaje\n', style: TextStyle(color: Colors.white)),
-                            TextSpan(text: 'a Trabajador', style: TextStyle(color: AppColors.primary)),
-                          ],
+                      badgeSistema,
+                    ],
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.business_center_outlined, size: 12, color: Colors.white),
+                        SizedBox(width: 5),
+                        Text(
+                          'OPERACIONES LOGÍSTICAS',
+                          style: TextStyle(
+                              color: Colors.white, fontWeight: FontWeight.w800, fontSize: 10, letterSpacing: 0.4),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        'Configure los detalles operativos de la ruta y asigne el personal '
-                        'calificado para la ejecución del servicio.',
-                        style: TextStyle(color: Colors.white70, fontSize: 13.5, height: 1.4),
-                      ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                RichText(
+                  text: const TextSpan(
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 30, height: 1.15),
+                    children: [
+                      TextSpan(text: 'Asignar Viaje\n', style: TextStyle(color: Colors.white)),
+                      TextSpan(text: 'a Trabajador', style: TextStyle(color: AppColors.primary)),
                     ],
                   ),
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: AppColors.success.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.circle, size: 7, color: Color(0xFF4ADE80)),
-                          SizedBox(width: 6),
-                          Text('SISTEMA OPERATIVO',
-                              style: TextStyle(color: Color(0xFF4ADE80), fontWeight: FontWeight.w700, fontSize: 10.5)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    OutlinedButton.icon(
-                      onPressed: _descartar,
-                      icon: const Icon(Icons.arrow_back, size: 14, color: Colors.white),
-                      label: const Text('VOLVER AL LISTADO', style: TextStyle(color: Colors.white)),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Colors.white24),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 10),
+                const Text(
+                  'Configure los detalles operativos de la ruta y asigne el personal '
+                  'calificado para la ejecución del servicio.',
+                  style: TextStyle(color: Colors.white70, fontSize: 13.5, height: 1.4),
                 ),
+                if (esPantallaPequena) ...[
+                  const SizedBox(height: 18),
+                  Align(
+                    alignment: Alignment.bottomRight,
+                    child: badgeSistema,
+                  ),
+                ],
               ],
             ),
           ),
@@ -489,43 +482,47 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
     );
   }
 
-  /// Cliente = origen del viaje. Al elegirlo se autocompleta su dirección.
-  Widget _buildDetallesCliente() {
+  Widget _buildDetallesCliente(bool esPantallaPequena) {
+    final campoCliente = LabeledDropdownField(
+      label: 'Cliente (origen)',
+      value: _clienteId,
+      items: _opciones(_clientes),
+      hint: _hintSelect('Seleccione un cliente...', 'No hay clientes registrados', _clientes.isEmpty),
+      icon: Icons.apartment_outlined,
+      loading: _cargandoOpciones,
+      onChanged: _onClienteChanged,
+      validator: (v) => v == null ? 'Selecciona un cliente' : null,
+    );
+
+    final campoPallets = LabeledTextField(
+      label: 'Pallets (cantidad)',
+      controller: _palletsCtrl,
+      hint: '0',
+      icon: Icons.info_outline,
+      keyboardType: TextInputType.number,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      validator: _validarPallets,
+    );
+
     return FormSectionCard(
       icon: Icons.inventory_2_outlined,
       title: 'Detalles del Cliente',
       child: Column(
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 2,
-                child: LabeledDropdownField(
-                  label: 'Cliente (origen)',
-                  value: _clienteId,
-                  items: _opciones(_clientes),
-                  hint: _hintSelect('Seleccione un cliente...', 'No hay clientes registrados', _clientes.isEmpty),
-                  icon: Icons.apartment_outlined,
-                  loading: _cargandoOpciones,
-                  onChanged: _onClienteChanged,
-                  validator: (v) => v == null ? 'Selecciona un cliente' : null,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: LabeledTextField(
-                  label: 'Pallets (cantidad)',
-                  controller: _palletsCtrl,
-                  hint: '0',
-                  icon: Icons.info_outline,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly], // solo enteros
-                  validator: _validarPallets,
-                ),
-              ),
-            ],
-          ),
+          if (!esPantallaPequena)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 2, child: campoCliente),
+                const SizedBox(width: 16),
+                Expanded(child: campoPallets),
+              ],
+            )
+          else ...[
+            campoCliente,
+            const SizedBox(height: 16),
+            campoPallets,
+          ],
           const SizedBox(height: 16),
           LabeledTextField(
             label: 'Dirección de origen',
@@ -539,43 +536,79 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
     );
   }
 
-  Widget _buildRutaYHorario() {
+  Widget _buildRutaYHorario(bool esPantallaPequena) {
+    final campoRegion = LabeledDropdownField(
+      label: 'Región operativa',
+      value: _regionId,
+      items: _regiones.map((r) => DropdownOption(r.id, r.nombre)).toList(),
+      hint: _hintSelect('Seleccione una región...', 'No hay regiones registradas', _regiones.isEmpty),
+      icon: Icons.public_outlined,
+      loading: _cargandoOpciones,
+      onChanged: (v) => setState(() => _regionId = v),
+      validator: (v) => v == null ? 'Selecciona una región' : null,
+    );
+
+    final campoConsignatario = LabeledDropdownField(
+      label: 'Destino (consignatario)',
+      value: _consignatarioId,
+      items: _opciones(_consignatarios),
+      hint: _hintSelect(
+          'Seleccione el consignatario...', 'No hay consignatarios registrados', _consignatarios.isEmpty),
+      icon: Icons.near_me_outlined,
+      loading: _cargandoOpciones,
+      onChanged: _onConsignatarioChanged,
+      validator: (v) => v == null ? 'Selecciona el consignatario de destino' : null,
+    );
+
+    final campoFecha = LabeledTextField(
+      label: 'Fecha programada',
+      controller: _fechaCtrl,
+      hint: 'dd/mm/aaaa',
+      icon: Icons.calendar_today_outlined,
+      readOnly: true,
+      onTap: _seleccionarFecha,
+      validator: (v) => _requerido(v, 'Elige la fecha'),
+    );
+
+    final campoHoraCarga = LabeledTextField(
+      label: 'Hora de carga',
+      controller: _horaCargaCtrl,
+      hint: '--:--',
+      icon: Icons.access_time,
+      readOnly: true,
+      onTap: () => _seleccionarHora(_horaCargaCtrl, (t) => _horaCarga = t),
+      validator: (v) => _requerido(v, 'Elige la hora'),
+    );
+
+    final campoHoraDescarga = LabeledTextField(
+      label: 'Hora de descarga',
+      controller: _horaDescargaCtrl,
+      hint: '--:--',
+      icon: Icons.access_time,
+      readOnly: true,
+      onTap: () => _seleccionarHora(_horaDescargaCtrl, (t) => _horaDescarga = t),
+      validator: (v) => _requerido(v, 'Elige la hora'),
+    );
+
     return FormSectionCard(
       icon: Icons.location_on_outlined,
       title: 'Ruta y Horario',
       child: Column(
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: LabeledDropdownField(
-                  label: 'Región operativa',
-                  value: _regionId,
-                  items: _regiones.map((r) => DropdownOption(r.id, r.nombre)).toList(),
-                  hint: _hintSelect('Seleccione una región...', 'No hay regiones registradas', _regiones.isEmpty),
-                  icon: Icons.public_outlined,
-                  loading: _cargandoOpciones,
-                  onChanged: (v) => setState(() => _regionId = v),
-                  validator: (v) => v == null ? 'Selecciona una región' : null,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: LabeledDropdownField(
-                  label: 'Destino (consignatario)',
-                  value: _consignatarioId,
-                  items: _opciones(_consignatarios),
-                  hint: _hintSelect(
-                      'Seleccione el consignatario...', 'No hay consignatarios registrados', _consignatarios.isEmpty),
-                  icon: Icons.near_me_outlined,
-                  loading: _cargandoOpciones,
-                  onChanged: _onConsignatarioChanged,
-                  validator: (v) => v == null ? 'Selecciona el consignatario de destino' : null,
-                ),
-              ),
-            ],
-          ),
+          if (!esPantallaPequena)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: campoRegion),
+                const SizedBox(width: 16),
+                Expanded(child: campoConsignatario),
+              ],
+            )
+          else ...[
+            campoRegion,
+            const SizedBox(height: 16),
+            campoConsignatario,
+          ],
           const SizedBox(height: 16),
           LabeledTextField(
             label: 'Dirección de destino',
@@ -585,85 +618,76 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
             readOnly: true,
           ),
           const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: LabeledTextField(
-                  label: 'Fecha programada',
-                  controller: _fechaCtrl,
-                  hint: 'dd/mm/aaaa',
-                  icon: Icons.calendar_today_outlined,
-                  readOnly: true,
-                  onTap: _seleccionarFecha,
-                  validator: (v) => _requerido(v, 'Elige la fecha'),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: LabeledTextField(
-                  label: 'Hora de carga',
-                  controller: _horaCargaCtrl,
-                  hint: '--:--',
-                  icon: Icons.access_time,
-                  readOnly: true,
-                  onTap: () => _seleccionarHora(_horaCargaCtrl, (t) => _horaCarga = t),
-                  validator: (v) => _requerido(v, 'Elige la hora'),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: LabeledTextField(
-                  label: 'Hora de descarga',
-                  controller: _horaDescargaCtrl,
-                  hint: '--:--',
-                  icon: Icons.access_time,
-                  readOnly: true,
-                  onTap: () => _seleccionarHora(_horaDescargaCtrl, (t) => _horaDescarga = t),
-                  validator: (v) => _requerido(v, 'Elige la hora'),
-                ),
-              ),
-            ],
-          ),
+          if (!esPantallaPequena)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: campoFecha),
+                const SizedBox(width: 16),
+                Expanded(child: campoHoraCarga),
+                const SizedBox(width: 16),
+                Expanded(child: campoHoraDescarga),
+              ],
+            )
+          else ...[
+            campoFecha,
+            const SizedBox(height: 16),
+            // Horas de carga y descarga juntas en la misma fila en celular
+            Row(
+              children: [
+                Expanded(child: campoHoraCarga),
+                const SizedBox(width: 12),
+                Expanded(child: campoHoraDescarga),
+              ],
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildAsignacionRecursos() {
+  Widget _buildAsignacionRecursos(bool esPantallaPequena) {
+    final campoConductor = LabeledDropdownField(
+      label: 'Seleccionar conductor',
+      value: _conductorRut,
+      items: _opciones(_conductores),
+      hint: _hintSelect('Buscar por nombre...', 'No hay conductores registrados', _conductores.isEmpty),
+      icon: Icons.person_outline,
+      loading: _cargandoOpciones,
+      onChanged: (v) => setState(() => _conductorRut = v),
+      validator: (v) => v == null ? 'Selecciona un conductor' : null,
+    );
+
+    final campoPatente = LabeledDropdownField(
+      label: 'Seleccionar patente',
+      value: _camionId,
+      items: _opciones(_camiones),
+      hint: _hintSelect('ABCD-12...', 'No hay camiones registrados', _camiones.isEmpty),
+      icon: Icons.local_shipping_outlined,
+      loading: _cargandoOpciones,
+      onChanged: (v) => setState(() => _camionId = v),
+      validator: (v) => v == null ? 'Selecciona una patente' : null,
+    );
+
     return FormSectionCard(
       icon: Icons.local_shipping_outlined,
       title: 'Asignación de Recursos',
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: LabeledDropdownField(
-              label: 'Seleccionar conductor',
-              value: _conductorRut,
-              items: _opciones(_conductores),
-              hint: _hintSelect('Buscar por nombre...', 'No hay conductores registrados', _conductores.isEmpty),
-              icon: Icons.person_outline,
-              loading: _cargandoOpciones,
-              onChanged: (v) => setState(() => _conductorRut = v),
-              validator: (v) => v == null ? 'Selecciona un conductor' : null,
+      child: esPantallaPequena
+          ? Column(
+              children: [
+                campoConductor,
+                const SizedBox(height: 16),
+                campoPatente,
+              ],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: campoConductor),
+                const SizedBox(width: 16),
+                Expanded(child: campoPatente),
+              ],
             ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: LabeledDropdownField(
-              label: 'Seleccionar patente',
-              value: _camionId,
-              items: _opciones(_camiones),
-              hint: _hintSelect('ABCD-12...', 'No hay camiones registrados', _camiones.isEmpty),
-              icon: Icons.local_shipping_outlined,
-              loading: _cargandoOpciones,
-              onChanged: (v) => setState(() => _camionId = v),
-              validator: (v) => v == null ? 'Selecciona una patente' : null,
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -680,85 +704,70 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
     );
   }
 
-  Widget _buildFooterAcciones() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth > 760;
-
-        final aviso = Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppColors.infoBg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.infoBorder),
-          ),
-          child: const Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.info_outline, size: 18, color: Colors.blueAccent),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Al confirmar, el viaje quedará asignado al conductor, quien podrá verlo en su '
-                  'aplicación, iniciarlo y completar los datos al finalizar.',
-                  style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
-                ),
-              ),
-            ],
-          ),
-        );
-
-        final botones = Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            OutlinedButton.icon(
-              onPressed: _guardando ? null : _descartar,
-              icon: const Icon(Icons.close, size: 16),
-              label: const Text('DESCARTAR'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.textPrimary,
-                side: const BorderSide(color: AppColors.border),
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
+  Widget _buildFooterAcciones(bool esPantallaPequena) {
+    final aviso = Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.infoBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.infoBorder),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 18, color: Colors.blueAccent),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Al confirmar, el viaje quedará asignado al conductor, quien podrá verlo en su '
+              'aplicación, iniciarlo y completar los datos al finalizar.',
+              style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
             ),
-            const SizedBox(width: 12),
-            ElevatedButton.icon(
-              onPressed: (_guardando || _cargandoOpciones) ? null : _asignar,
-              icon: _guardando
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.save_outlined, size: 16),
-              label: Text(_guardando ? 'ASIGNANDO...' : 'ASIGNAR VIAJE'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                textStyle: const TextStyle(fontWeight: FontWeight.w700),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-          ],
-        );
+          ),
+        ],
+      ),
+    );
 
-        if (isWide) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: aviso),
-              const SizedBox(width: 16),
-              botones,
-            ],
-          );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [aviso, const SizedBox(height: 16), botones],
-        );
-      },
+    final botonAsignar = ElevatedButton.icon(
+      onPressed: (_guardando || _cargandoOpciones) ? null : _asignar,
+      icon: _guardando
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            )
+          : const Icon(Icons.save_outlined, size: 16),
+      label: Text(_guardando ? 'ASIGNANDO...' : 'ASIGNAR VIAJE'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+
+    if (!esPantallaPequena) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: aviso),
+          const SizedBox(width: 16),
+          botonAsignar,
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        aviso,
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: botonAsignar,
+        ),
+      ],
     );
   }
 }

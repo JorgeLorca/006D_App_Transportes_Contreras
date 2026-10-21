@@ -10,6 +10,8 @@ import '../../widgets/document_upload_field.dart';
 import '../../widgets/form_section_card.dart';
 import '../../widgets/confirm_dialog.dart';
 
+import '../../utils/formato.dart';
+
 class CamionFormScreen extends StatefulWidget {
   const CamionFormScreen({super.key, this.onGuardar});
 
@@ -25,10 +27,6 @@ class _CamionFormScreenState extends State<CamionFormScreen> {
   // Controladores de Texto
   final _marcaCtrl = TextEditingController();
   final _modeloCtrl = TextEditingController();
-  // NOTA: tipo_camion queda como texto libre por ahora; se convertirá en un
-  // select cuando exista el catálogo de tipos de camión en Supabase (mismo
-  // caso que comuna/región en el form de Consignatario). No se envía a la
-  // base de datos todavía.
   final _tipoCtrl = TextEditingController();
   final _anioCtrl = TextEditingController();
   final _patenteCtrl = TextEditingController();
@@ -52,7 +50,7 @@ class _CamionFormScreenState extends State<CamionFormScreen> {
   XFile? _padronFile;
 
   bool _guardando = false;
-  int _formVersion = 0; // cambia al limpiar, para reiniciar los campos de documentos
+  int _formVersion = 0;
 
   @override
   void dispose() {
@@ -68,7 +66,6 @@ class _CamionFormScreenState extends State<CamionFormScreen> {
     super.dispose();
   }
 
-  /// Selector directo de solo Año usando YearPicker
   Future<void> _seleccionarAnio(BuildContext context) async {
     final now = DateTime.now();
 
@@ -163,8 +160,8 @@ class _CamionFormScreenState extends State<CamionFormScreen> {
 
     final camion = Camion(
       patente: _patenteCtrl.text.trim().toUpperCase(),
-      marca: _marcaCtrl.text.trim(),
-      modelo: _modeloCtrl.text.trim(),
+      marca: capitalizarTexto(_marcaCtrl.text),
+      modelo: _modeloCtrl.text.trim().toUpperCase(),
       anio: int.parse(_anioCtrl.text.trim()),
     );
 
@@ -218,21 +215,23 @@ class _CamionFormScreenState extends State<CamionFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final double anchoPantalla = MediaQuery.of(context).size.width;
+    final bool esPantallaPequena = anchoPantalla < 750;
+
     return AdminShell(
-      selectedIndex: 10, // O el índice que uses para Camiones
-      showBackButton: true, // <--- HABILITA LA FLECHA DE VOLVER
+      selectedIndex: 10,
+      showBackButton: true,
       title: 'Gestión de Flota: Registro de Camión',
       child: Form(
         key: _formKey,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(esPantallaPequena ? 16.0 : 24.0),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1200),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Banner superior de instrucciones
                   _buildInstruccionesBanner(),
                   const SizedBox(height: 20),
 
@@ -264,77 +263,100 @@ class _CamionFormScreenState extends State<CamionFormScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Información Técnica del Vehículo
+                  // Información Técnica del Vehículo Responsiva
                   FormSectionCard(
                     icon: Icons.build_outlined,
                     title: 'Información Técnica del Vehículo',
-                    child: Column(
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final bool esEscritorio = constraints.maxWidth > 750;
+
+                        final campoMarca = LabeledTextField(
+                          label: 'Marca',
+                          controller: _marcaCtrl,
+                          hint: 'Ej: Volvo',
+                          icon: Icons.minor_crash_outlined,
+                          validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
+                        );
+
+                        final campoModelo = LabeledTextField(
+                          label: 'Modelo',
+                          controller: _modeloCtrl,
+                          hint: 'Ej: FH16',
+                          icon: Icons.local_shipping_outlined,
+                          validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
+                        );
+
+                        final campoTipo = LabeledTextField(
+                          label: 'Tipo de Camión',
+                          controller: _tipoCtrl,
+                          hint: 'Ej: Articulado',
+                          icon: Icons.category_outlined,
+                          validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
+                        );
+
+                        final campoPatente = LabeledTextField(
+                          label: 'Patente (PPU)',
+                          controller: _patenteCtrl,
+                          hint: 'Ej: ABCD-12',
+                          icon: Icons.subtitles_outlined,
+                          validator: (v) => v == null || v.isEmpty ? 'Ingresa la patente' : null,
+                        );
+
+                        final campoAnio = LabeledTextField(
+                          label: 'Año de Fabricación',
+                          controller: _anioCtrl,
+                          hint: 'aaaa',
+                          icon: Icons.calendar_today_outlined,
+                          readOnly: true,
+                          onTap: () => _seleccionarAnio(context),
+                          validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
+                        );
+
+                        if (esEscritorio) {
+                          // Vista PC: 3 columnas simétricas idénticas al diseño original
+                          return Column(
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: campoMarca),
+                                  const SizedBox(width: 16),
+                                  Expanded(child: campoModelo),
+                                  const SizedBox(width: 16),
+                                  Expanded(child: campoTipo),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: campoPatente),
+                                  const SizedBox(width: 16),
+                                  Expanded(child: campoAnio),
+                                  const SizedBox(width: 16),
+                                  const Expanded(child: SizedBox()),
+                                ],
+                              ),
+                            ],
+                          );
+                        }
+
+                        // Vista Móvil: 1 campo por fila para evitar textos aplastados
+                        return Column(
                           children: [
-                            Expanded(
-                              child: LabeledTextField(
-                                label: 'Marca',
-                                controller: _marcaCtrl,
-                                hint: 'Ej: Volvo',
-                                icon: Icons.minor_crash_outlined,
-                                validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: LabeledTextField(
-                                label: 'Modelo',
-                                controller: _modeloCtrl,
-                                hint: 'Ej: FH16',
-                                icon: Icons.local_shipping_outlined,
-                                validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: LabeledTextField(
-                                label: 'Tipo de Camión',
-                                controller: _tipoCtrl,
-                                hint: 'Ej: Articulado',
-                                icon: Icons.category_outlined,
-                                validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
-                              ),
-                            ),
+                            campoMarca,
+                            const SizedBox(height: 14),
+                            campoModelo,
+                            const SizedBox(height: 14),
+                            campoTipo,
+                            const SizedBox(height: 14),
+                            campoPatente,
+                            const SizedBox(height: 14),
+                            campoAnio,
                           ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: LabeledTextField(
-                                label: 'Patente (PPU)',
-                                controller: _patenteCtrl,
-                                hint: 'Ej: ABCD-12',
-                                icon: Icons.subtitles_outlined,
-                                validator: (v) => v == null || v.isEmpty ? 'Ingresa la patente' : null,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: LabeledTextField(
-                                label: 'Año de Fabricación',
-                                controller: _anioCtrl,
-                                hint: 'aaaa',
-                                icon: Icons.calendar_today_outlined,
-                                readOnly: true,
-                                onTap: () => _seleccionarAnio(context),
-                                validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            // Espacio para equilibrar la fila de 3 columnas
-                            const Expanded(child: SizedBox()),
-                          ],
-                        ),
-                      ],
+                        );
+                      },
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -458,8 +480,6 @@ class _CamionFormScreenState extends State<CamionFormScreen> {
       ),
       child: Stack(
         children: [
-          // Ícono decorativo de fondo (sin depender de internet, a
-          // diferencia de una imagen de red: el proyecto es offline-first).
           Positioned(
             right: -10,
             bottom: -20,

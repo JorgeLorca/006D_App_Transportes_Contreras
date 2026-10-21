@@ -44,12 +44,17 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
     _cargarConsignatariosDesdeSupabase();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _cargarConsignatariosDesdeSupabase() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
 
     try {
-      // Trae los datos del consignatario y los nombres de comuna y región vinculados
       final data = await Supabase.instance.client
           .from('consignatarios')
           .select('*, comunas(nombre), regiones(nombre)');
@@ -61,14 +66,12 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
           final nombreEmpresa = (map['nombre_empresa'] ?? map['nombre'] ?? 'Sin Nombre').toString();
           final calle = (map['direccion'] ?? '').toString().trim();
 
-          // Extraer nombres de los objetos foráneos devueltos por el join
           final comunaData = map['comunas'] as Map<String, dynamic>?;
           final regionData = map['regiones'] as Map<String, dynamic>?;
 
           final nombreComuna = (comunaData?['nombre'] ?? '').toString().trim();
           final nombreRegion = (regionData?['nombre'] ?? '').toString().trim();
 
-          // Construir la dirección completa en formato: "Dirección, Comuna, Región"
           final List<String> partesDireccion = [];
           if (calle.isNotEmpty) partesDireccion.add(calle);
           if (nombreComuna.isNotEmpty) partesDireccion.add(nombreComuna);
@@ -177,9 +180,6 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
     );
   }
 
-  /// Abre la screen de edición, precargada con los datos de [item] (el Map
-  /// que usa la tarjeta). Si vuelve con `true` (se guardó algo), recarga la
-  /// lista desde Supabase.
   Future<void> _abrirFormularioEdicion(Map<String, dynamic> item) async {
     final consignatarioExistente = Consignatario(
       id: item['id'],
@@ -270,12 +270,16 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final double anchoPantalla = MediaQuery.of(context).size.width;
+    final bool esPantallaPequena = anchoPantalla < 750;
+    final double paddingHorizontal = esPantallaPequena ? 16.0 : 32.0;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 24.0),
+      padding: EdgeInsets.symmetric(horizontal: paddingHorizontal, vertical: 24.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Cabecera y Botones de Acción
+          // 1. Cabecera y Botones de Acción Responsivos
           LayoutBuilder(
             builder: (context, constraints) {
               final bool esPantallaAncha = constraints.maxWidth > 750;
@@ -315,48 +319,43 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
                 ],
               );
 
-              final Widget bloqueBotones = Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: _exportarCsvConsignatarios,
-                    icon: const Icon(Icons.download_outlined, size: 16, color: AppColors.textPrimary),
-                    label: const Text(
-                      'Exportar CSV',
-                      style: TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+              final Widget botonCsv = OutlinedButton.icon(
+                onPressed: _exportarCsvConsignatarios,
+                icon: const Icon(Icons.download_outlined, size: 16, color: AppColors.textPrimary),
+                label: const Text(
+                  'Exportar CSV',
+                  style: TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+                ),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  side: const BorderSide(color: AppColors.border),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                ),
+              );
+
+              final Widget botonAgregar = ElevatedButton.icon(
+                onPressed: () async {
+                  await Navigator.of(context).push(
+                    PageRouteBuilder(
+                      pageBuilder: (_, __, ___) => const ConsignatarioFormScreen(),
+                      transitionDuration: Duration.zero,
+                      reverseTransitionDuration: Duration.zero,
                     ),
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      side: const BorderSide(color: AppColors.border),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  ElevatedButton.icon(
-                    onPressed: () async {
-                      await Navigator.of(context).push(
-                        PageRouteBuilder(
-                          pageBuilder: (_, __, ___) => const ConsignatarioFormScreen(),
-                          transitionDuration: Duration.zero,
-                          reverseTransitionDuration: Duration.zero,
-                        ),
-                      );
-                      _cargarConsignatariosDesdeSupabase();
-                    },
-                    icon: const Icon(Icons.add, size: 16, color: Colors.white),
-                    label: const Text(
-                      'AGREGAR CONSIGNATARIO',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                      elevation: 0,
-                    ),
-                  ),
-                ],
+                  );
+                  _cargarConsignatariosDesdeSupabase();
+                },
+                icon: const Icon(Icons.add, size: 16, color: Colors.white),
+                label: const Text(
+                  'AGREGAR CONSIGNATARIO',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  elevation: 0,
+                ),
               );
 
               if (esPantallaAncha) {
@@ -366,16 +365,25 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
                   children: [
                     Expanded(child: bloqueTextos),
                     const SizedBox(width: 16),
-                    bloqueBotones,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        botonCsv,
+                        const SizedBox(width: 12),
+                        botonAgregar,
+                      ],
+                    ),
                   ],
                 );
               } else {
                 return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     bloqueTextos,
                     const SizedBox(height: 16),
-                    bloqueBotones,
+                    botonCsv,
+                    const SizedBox(height: 10),
+                    botonAgregar,
                   ],
                 );
               }
@@ -383,127 +391,12 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
           ),
           const SizedBox(height: 24),
 
-          // 2. Buscador con Filtros y Badge Total
-          Container(
-            padding: const EdgeInsets.all(12.0),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceMuted,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: _filtrarConsignatarios,
-                      style: const TextStyle(fontSize: 13),
-                      decoration: const InputDecoration(
-                        hintText: 'Buscar consignatario por nombre o dirección...',
-                        hintStyle: TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
-                        prefixIcon: Icon(Icons.search, size: 18, color: Color(0xFF94A3B8)),
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(vertical: 9),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.filter_list, size: 16, color: Color(0xFF475569)),
-                  label: const Text(
-                    'Filtros',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: AppColors.surfaceMuted,
-                    side: const BorderSide(color: AppColors.border),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Text(
-                    'Total: ${_consignatarios.length}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF475569),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          // 2. Buscador con Filtros Responsivo
+          _buildBuscadorResponsivo(esPantallaPequena),
           const SizedBox(height: 24),
 
           // 3. Fila Directorio de Recepción + Ordenar
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'DIRECTORIO DE RECEPCIÓN',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textSecondary,
-                  letterSpacing: 0.6,
-                ),
-              ),
-              Row(
-                children: [
-                  const Text('Ordenar:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                  const SizedBox(width: 6),
-                  InkWell(
-                    onTap: _cambiarOrden,
-                    borderRadius: BorderRadius.circular(4),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      child: Row(
-                        children: [
-                          Text(
-                            _ordenAscendente ? 'A-Z' : 'Z-A',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Icon(
-                            _ordenAscendente ? Icons.arrow_upward : Icons.arrow_downward,
-                            size: 14,
-                            color: AppColors.textPrimary,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    tooltip: 'Refrescar consignatarios',
-                    icon: const Icon(Icons.refresh, size: 18, color: AppColors.textSecondary),
-                    onPressed: _cargarConsignatariosDesdeSupabase,
-                  ),
-                ],
-              ),
-            ],
-          ),
+          _buildCabeceraDirectorio(esPantallaPequena),
           const SizedBox(height: 16),
 
           // 4. Grilla de Consignatarios
@@ -666,44 +559,256 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
           const Divider(height: 1, color: AppColors.border),
           const SizedBox(height: 16),
 
-          // 6. Footer de Consignatarios
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                '© 2026 Transportes Contreras Enterprise. Sistema Centralizado de Logística v2.4.1',
-                style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-              ),
-              Row(
-                children: [
-                  _buildFooterLink('Términos de Servicio'),
-                  const SizedBox(width: 16),
-                  _buildFooterLink('Soporte Operacional'),
-                  const SizedBox(width: 16),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF0FDF4),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFBBF7D0)),
-                    ),
-                    child: Row(
-                      children: const [
-                        Icon(Icons.circle, color: Color(0xFF16A34A), size: 6),
-                        SizedBox(width: 5),
-                        Text(
-                          'SERVIDORES SEGUROS',
-                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF16A34A)),
-                        ),
-                      ],
-                    ),
+          // 6. Footer Responsivo
+          _buildFooterResponsivo(esPantallaPequena),
+        ],
+      ),
+    );
+  }
+
+  // Buscador Responsivo
+  Widget _buildBuscadorResponsivo(bool esPantallaPequena) {
+    final Widget campoInput = Container(
+      height: 40,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: TextField(
+        controller: _searchController,
+        onChanged: _filtrarConsignatarios,
+        style: const TextStyle(fontSize: 13),
+        decoration: InputDecoration(
+          hintText: esPantallaPequena
+              ? 'Buscar consignatario...'
+              : 'Buscar consignatario por nombre o dirección...',
+          hintStyle: const TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
+          prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF94A3B8)),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 16, color: Color(0xFF94A3B8)),
+                  onPressed: () {
+                    _searchController.clear();
+                    _filtrarConsignatarios('');
+                  },
+                )
+              : null,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 9),
+        ),
+      ),
+    );
+
+    final Widget botonFiltrosIcono = OutlinedButton(
+      onPressed: () {},
+      style: OutlinedButton.styleFrom(
+        backgroundColor: AppColors.surfaceMuted,
+        side: const BorderSide(color: AppColors.border),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      ),
+      child: const Icon(Icons.filter_list, size: 18, color: Color(0xFF475569)),
+    );
+
+    final Widget botonFiltrosTexto = OutlinedButton.icon(
+      onPressed: () {},
+      icon: const Icon(Icons.filter_list, size: 16, color: Color(0xFF475569)),
+      label: const Text(
+        'Filtros',
+        style: TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600),
+      ),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: AppColors.surfaceMuted,
+        side: const BorderSide(color: AppColors.border),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      ),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(12.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: esPantallaPequena
+          ? Row(
+              children: [
+                Expanded(child: campoInput),
+                const SizedBox(width: 8),
+                botonFiltrosIcono,
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(child: campoInput),
+                const SizedBox(width: 12),
+                botonFiltrosTexto,
+              ],
+            ),
+    );
+  }
+
+  // Cabecera Directorio con Badge de Total y controles de Orden
+  Widget _buildCabeceraDirectorio(bool esPantallaPequena) {
+    final Widget bloqueTitulo = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          'DIRECTORIO DE RECEPCIÓN',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: AppColors.textSecondary,
+            letterSpacing: 0.6,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE2E8F0),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            '${_consignatarios.length} Total',
+            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
+          ),
+        ),
+      ],
+    );
+
+    final Widget bloqueOrden = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('Ordenar:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+        const SizedBox(width: 6),
+        InkWell(
+          onTap: _cambiarOrden,
+          borderRadius: BorderRadius.circular(4),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _ordenAscendente ? 'A-Z' : 'Z-A',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
                   ),
-                ],
-              ),
-            ],
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  _ordenAscendente ? Icons.arrow_upward : Icons.arrow_downward,
+                  size: 14,
+                  color: AppColors.textPrimary,
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          tooltip: 'Refrescar consignatarios',
+          icon: const Icon(Icons.refresh, size: 18, color: AppColors.textSecondary),
+          onPressed: _cargarConsignatariosDesdeSupabase,
+        ),
+      ],
+    );
+
+    if (!esPantallaPequena) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [bloqueTitulo, bloqueOrden],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        bloqueTitulo,
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            bloqueOrden,
+          ],
+        ),
+      ],
+    );
+  }
+
+  // Footer Responsivo
+  Widget _buildFooterResponsivo(bool esPantallaPequena) {
+    final enlaces = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildFooterLink('Términos de Servicio'),
+        const SizedBox(width: 14),
+        _buildFooterLink('Soporte Operacional'),
+      ],
+    );
+
+    final servidorSeguro = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FDF4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Icon(Icons.circle, color: Color(0xFF16A34A), size: 6),
+          SizedBox(width: 5),
+          Text(
+            'SERVIDORES SEGUROS',
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF16A34A)),
           ),
         ],
       ),
+    );
+
+    if (!esPantallaPequena) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            '© 2026 Transportes Contreras Enterprise. Sistema Centralizado de Logística v2.4.1',
+            style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+          ),
+          Row(
+            children: [
+              enlaces,
+              const SizedBox(width: 16),
+              servidorSeguro,
+            ],
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            enlaces,
+            const SizedBox(width: 16),
+            servidorSeguro,
+          ],
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          '© 2026 Transportes Contreras Enterprise. Sistema Centralizado de Logística v2.4.1',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8)),
+        ),
+      ],
     );
   }
 

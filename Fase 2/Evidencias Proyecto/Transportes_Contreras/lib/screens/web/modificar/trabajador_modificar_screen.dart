@@ -10,29 +10,14 @@ import '../../../widgets/confirm_dialog.dart';
 import '../../../widgets/document_upload_field.dart';
 import '../../../widgets/form_section_card.dart';
 
+import '../../../utils/formato.dart';
+
 /// Screen dedicada a **modificar** un trabajador (conductor) ya existente
 /// del panel admin web de Transportes Contreras.
-///
-/// Es una screen separada de [TrabajadorFormScreen] (que solo crea
-/// trabajadores nuevos, incluyendo sus credenciales de Auth) para no
-/// mezclar esa lógica con la de edición. Aquí:
-/// - El RUT **no se puede editar**: es la llave primaria de `conductores`
-///   y además identifica la carpeta de documentos en Storage.
-/// - No se tocan las credenciales de Auth (contraseña); eso quedaría para
-///   un flujo de "restablecer contraseña" aparte.
-/// - Los documentos (carnet/licencia) son opcionales de reemplazar: si no
-///   se elige un archivo nuevo, los que ya existían quedan intactos.
-///
-/// Al confirmar, hace un `UPDATE` sobre la fila (por [Trabajador.rut]) con
-/// [TrabajadoresRepository.actualizar] y vuelve al listado
-/// (`Navigator.pop(true)`) para que se recarguen los datos.
 class TrabajadorModificarScreen extends StatefulWidget {
   const TrabajadorModificarScreen({super.key, required this.trabajador, this.onActualizar});
 
-  /// El trabajador a editar. Debe traer [Trabajador.rut] (viene de Supabase).
   final Trabajador trabajador;
-
-  /// Callback opcional que recibe el trabajador ya actualizado.
   final ValueChanged<Trabajador>? onActualizar;
 
   @override
@@ -44,7 +29,6 @@ class _TrabajadorModificarScreenState extends State<TrabajadorModificarScreen> {
 
   late final _nombreCtrl = TextEditingController(text: widget.trabajador.nombreCompleto);
   late final _correoCtrl = TextEditingController(text: widget.trabajador.correo);
-  // El campo solo edita los 9 dígitos; el "+56 " es fijo en la UI.
   late final _telefonoCtrl =
       TextEditingController(text: widget.trabajador.telefono.replaceFirst('+56 ', '').trim());
   late final _fechaCtrl = TextEditingController(text: _formatearFecha(widget.trabajador.fechaNacimiento));
@@ -54,7 +38,6 @@ class _TrabajadorModificarScreenState extends State<TrabajadorModificarScreen> {
 
   final _repo = TrabajadoresRepository();
 
-  // Solo se llenan si el usuario decide reemplazar el documento existente.
   XFile? _carnetFile;
   XFile? _licenciaFile;
 
@@ -120,11 +103,11 @@ class _TrabajadorModificarScreenState extends State<TrabajadorModificarScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final trabajadorActualizado = Trabajador(
-      rut: widget.trabajador.rut, // no editable
+      rut: widget.trabajador.rut,
       authId: widget.trabajador.authId,
-      nombreCompleto: _nombreCtrl.text.trim(),
+      nombreCompleto: capitalizarTexto(_nombreCtrl.text),
       fechaNacimiento: _fechaNacimiento,
-      correo: _correoCtrl.text.trim(),
+      correo: _correoCtrl.text.trim().toLowerCase(),
       telefono: '+56 ${_telefonoCtrl.text.trim()}',
       urlCedulaIdentidad: widget.trabajador.urlCedulaIdentidad,
       urlLicenciaConducir: widget.trabajador.urlLicenciaConducir,
@@ -158,7 +141,6 @@ class _TrabajadorModificarScreenState extends State<TrabajadorModificarScreen> {
         'Trabajador "${trabajadorActualizado.nombreCompleto}" actualizado correctamente',
         AppColors.success,
       );
-      // Vuelve al listado para que se recarguen los datos.
       Navigator.of(context).pop(true);
     } on RepositoryException catch (e) {
       if (!mounted) return;
@@ -182,14 +164,17 @@ class _TrabajadorModificarScreenState extends State<TrabajadorModificarScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final double anchoPantalla = MediaQuery.of(context).size.width;
+    final bool esPantallaPequena = anchoPantalla < 750;
+
     return AdminShell(
       selectedIndex: 12,
-      showBackButton: true, // <--- HABILITA LA FLECHA DE VOLVER
+      showBackButton: true,
       title: 'Modificar Trabajador',
       child: Form(
         key: _formKey,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(esPantallaPequena ? 16.0 : 24.0),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1200),
@@ -197,7 +182,7 @@ class _TrabajadorModificarScreenState extends State<TrabajadorModificarScreen> {
                 builder: (context, constraints) {
                   final isWide = constraints.maxWidth > 860;
 
-                  final formColumn = _buildFormColumn();
+                  final formColumn = _buildFormColumn(constraints.maxWidth);
                   final sideColumn = _buildSideColumn();
 
                   if (isWide) {
@@ -226,7 +211,9 @@ class _TrabajadorModificarScreenState extends State<TrabajadorModificarScreen> {
     );
   }
 
-  Widget _buildFormColumn() {
+  Widget _buildFormColumn(double contenedorWidth) {
+    final bool dosColumnas = contenedorWidth > 620;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -257,6 +244,8 @@ class _TrabajadorModificarScreenState extends State<TrabajadorModificarScreen> {
           ],
         ),
         const SizedBox(height: 20),
+
+        // 1. Nombre e identificación
         FormSectionCard(
           icon: Icons.person_outline,
           title: 'Nombre y identificación',
@@ -270,108 +259,121 @@ class _TrabajadorModificarScreenState extends State<TrabajadorModificarScreen> {
                 validator: _validarNombre,
               ),
               const SizedBox(height: 16),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: LabeledTextField(
-                      label: 'RUT',
-                      controller: _rutCtrl,
-                      icon: Icons.badge_outlined,
-                      readOnly: true,
-                      helperText: 'El RUT no se puede modificar.',
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: LabeledTextField(
-                      label: 'Fecha de nacimiento',
-                      controller: _fechaCtrl,
-                      hint: 'dd/mm/aaaa',
-                      icon: Icons.calendar_today_outlined,
-                      readOnly: true,
-                      onTap: _seleccionarFecha,
-                    ),
-                  ),
-                ],
-              ),
+
+              if (dosColumnas)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _buildCampoRut()),
+                    const SizedBox(width: 16),
+                    Expanded(child: _buildCampoFechaNacimiento()),
+                  ],
+                )
+              else
+                Column(
+                  children: [
+                    _buildCampoRut(),
+                    const SizedBox(height: 16),
+                    _buildCampoFechaNacimiento(),
+                  ],
+                ),
             ],
           ),
         ),
         const SizedBox(height: 20),
+
+        // 2. Información de contacto
         FormSectionCard(
           icon: Icons.mail_outline,
           title: 'Información de contacto',
           child: Column(
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: LabeledTextField(
-                      label: 'Correo electrónico',
-                      controller: _correoCtrl,
-                      hint: 'ejemplo@transcontreras.cl',
-                      icon: Icons.email_outlined,
-                      keyboardType: TextInputType.emailAddress,
-                      validator: _validarCorreo,
-                      helperText: 'Cambiarlo aquí no modifica las credenciales de inicio de sesión del trabajador.',
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: LabeledPhoneField(
-                      label: 'Teléfono de contacto',
-                      controller: _telefonoCtrl,
-                      validator: _validarTelefono,
-                    ),
-                  ),
-                ],
-              ),
+              if (dosColumnas)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _buildCampoCorreo()),
+                    const SizedBox(width: 16),
+                    Expanded(child: _buildCampoTelefono()),
+                  ],
+                )
+              else
+                Column(
+                  children: [
+                    _buildCampoCorreo(),
+                    const SizedBox(height: 16),
+                    _buildCampoTelefono(),
+                  ],
+                ),
             ],
           ),
         ),
         const SizedBox(height: 24),
-        Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: ElevatedButton.icon(
-                onPressed: _guardando ? null : _actualizar,
-                icon: _guardando
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.save_outlined, size: 18),
-                label: Text(_guardando ? 'ACTUALIZANDO...' : 'ACTUALIZAR TRABAJADOR'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  textStyle: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0.3),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
+
+        // Botón Actualizar a todo el ancho (sin botón redundante de volver)
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _guardando ? null : _actualizar,
+            icon: _guardando
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.save_outlined, size: 18),
+            label: Text(_guardando ? 'ACTUALIZANDO...' : 'ACTUALIZAR TRABAJADOR'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              textStyle: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0.3),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.close, size: 18),
-                label: const Text('CANCELAR Y VOLVER'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.textPrimary,
-                  side: const BorderSide(color: AppColors.border),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCampoRut() {
+    return LabeledTextField(
+      label: 'RUT',
+      controller: _rutCtrl,
+      icon: Icons.badge_outlined,
+      readOnly: true,
+      helperText: 'El RUT no se puede modificar.',
+    );
+  }
+
+  Widget _buildCampoFechaNacimiento() {
+    return LabeledTextField(
+      label: 'Fecha de nacimiento',
+      controller: _fechaCtrl,
+      hint: 'dd/mm/aaaa',
+      icon: Icons.calendar_today_outlined,
+      readOnly: true,
+      onTap: _seleccionarFecha,
+    );
+  }
+
+  Widget _buildCampoCorreo() {
+    return LabeledTextField(
+      label: 'Correo electrónico',
+      controller: _correoCtrl,
+      hint: 'ejemplo@transcontreras.cl',
+      icon: Icons.email_outlined,
+      keyboardType: TextInputType.emailAddress,
+      validator: _validarCorreo,
+      helperText: 'Cambiarlo aquí no modifica las credenciales de inicio de sesión del trabajador.',
+    );
+  }
+
+  Widget _buildCampoTelefono() {
+    return LabeledPhoneField(
+      label: 'Teléfono de contacto',
+      controller: _telefonoCtrl,
+      validator: _validarTelefono,
     );
   }
 

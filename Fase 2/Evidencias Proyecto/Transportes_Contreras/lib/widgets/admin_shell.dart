@@ -15,7 +15,7 @@ class AdminShell extends StatefulWidget {
     this.title,
     this.child,
     this.showBackButton = false,
-    this.initiallyOpen = true,
+    this.initiallyOpen = false,
     this.subtitle,
     this.actions,
     this.eyebrow,
@@ -34,7 +34,7 @@ class AdminShell extends StatefulWidget {
   final IconData? eyebrowIcon;
   final int initialIndex;
 
-  static const double sidebarWidth = 240;
+  static const double sidebarWidth = 260;
 
   @override
   State<AdminShell> createState() => _AdminShellState();
@@ -53,9 +53,17 @@ class _AdminShellState extends State<AdminShell> {
 
   void _toggleSidebar() => setState(() => _isSidebarOpen = !_isSidebarOpen);
 
-  void _onMenuTap(int index) {
-    if (index == _currentIndex && widget.child == null) return;
+  void _closeSidebar() {
+    if (_isSidebarOpen) {
+      setState(() => _isSidebarOpen = false);
+    }
+  }
 
+  void _onMenuTap(int index) {
+    _closeSidebar();
+
+    // Si pulsamos Inicio (0), redirigimos a AdminHomeScreen directamente
+    // evitando meterla dentro de AdminShell para no duplicar su TopBar.
     if (index == 0) {
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
@@ -67,10 +75,8 @@ class _AdminShellState extends State<AdminShell> {
       return;
     }
 
-    // 14 = Cargas > Asignar Viaje. Se abre con push (no pushReplacement) para
-    // que "Descartar" vuelva a la pantalla desde la que se llegó.
+    // 14 = Cargas > Asignar Viaje
     if (index == 14) {
-      // Si ya estamos en Asignar Viaje no se recarga (se perdería lo digitado).
       if (_currentIndex == 14) return;
       Navigator.of(context).push(
         PageRouteBuilder(
@@ -92,7 +98,10 @@ class _AdminShellState extends State<AdminShell> {
     if (widget.child != null) {
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) => AdminShell(initialIndex: index),
+          pageBuilder: (context, animation, secondaryAnimation) => AdminShell(
+            initialIndex: index,
+            initiallyOpen: false,
+          ),
           transitionDuration: Duration.zero,
           reverseTransitionDuration: Duration.zero,
         ),
@@ -172,25 +181,10 @@ class _AdminShellState extends State<AdminShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: Row(
+      body: Stack(
         children: [
-          ClipRect(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              curve: Curves.fastOutSlowIn,
-              width: _isSidebarOpen ? AdminShell.sidebarWidth : 0,
-              child: OverflowBox(
-                alignment: Alignment.centerLeft,
-                minWidth: AdminShell.sidebarWidth,
-                maxWidth: AdminShell.sidebarWidth,
-                child: AppSidebar(
-                  selectedIndex: _currentIndex,
-                  onItemSelected: _onMenuTap,
-                ),
-              ),
-            ),
-          ),
-          Expanded(
+          // 1. Contenido Principal a pantalla completa (nunca se corre ni se deforma)
+          Positioned.fill(
             child: Column(
               children: [
                 _TopBar(
@@ -209,6 +203,41 @@ class _AdminShellState extends State<AdminShell> {
                   ),
                 ),
               ],
+            ),
+          ),
+
+          // 2. Fondo Oscurecido (Overlay Scrim)
+          IgnorePointer(
+            ignoring: !_isSidebarOpen,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              opacity: _isSidebarOpen ? 1.0 : 0.0,
+              child: GestureDetector(
+                onTap: _closeSidebar,
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  color: Colors.black.withOpacity(0.55),
+                ),
+              ),
+            ),
+          ),
+
+          // 3. Sidebar Flotante que se desliza por encima tanto en PC como en móvil
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            top: 0,
+            bottom: 0,
+            left: _isSidebarOpen ? 0 : -AdminShell.sidebarWidth,
+            width: AdminShell.sidebarWidth,
+            child: Material(
+              elevation: 16,
+              color: Colors.transparent,
+              child: AppSidebar(
+                selectedIndex: _currentIndex,
+                onItemSelected: _onMenuTap,
+              ),
             ),
           ),
         ],

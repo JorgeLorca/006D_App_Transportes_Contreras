@@ -11,16 +11,10 @@ import '../../widgets/admin_shell.dart';
 import '../../widgets/confirm_dialog.dart';
 import '../../widgets/form_section_card.dart';
 
+import '../../utils/formato.dart';
+
 /// Formulario de alta de un consignatario (empresa receptora de la
 /// mercancía) para el panel admin web de Transportes Contreras.
-///
-/// Región y Comuna ahora son tablas de referencia en Supabase
-/// (`regiones`/`comunas`), así que se cargan dinámicamente: las regiones al
-/// abrir el formulario, y las comunas de la región elegida cada vez que
-/// cambia el Dropdown de Región.
-///
-/// Al guardar, [ConsignatariosRepository] inserta el consignatario en la
-/// tabla `consignatarios` de Supabase (con `region_id`/`comuna_id`).
 class ConsignatarioFormScreen extends StatefulWidget {
   const ConsignatarioFormScreen({super.key, this.onGuardar});
 
@@ -106,7 +100,7 @@ class _ConsignatarioFormScreenState extends State<ConsignatarioFormScreen> {
   void _onRegionChanged(String? regionId) {
     setState(() {
       _selectedRegionId = regionId;
-      _selectedComunaId = null; // Resetea la comuna al cambiar de región
+      _selectedComunaId = null;
       _comunas = [];
     });
     if (regionId != null) _cargarComunas(regionId);
@@ -139,14 +133,12 @@ class _ConsignatarioFormScreenState extends State<ConsignatarioFormScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final consignatario = Consignatario(
-      nombreEmpresa: _nombreEmpresaCtrl.text.trim(),
-      direccion: _direccionCtrl.text.trim(),
+      nombreEmpresa: capitalizarTexto(_nombreEmpresaCtrl.text),
+      direccion: capitalizarTexto(_direccionCtrl.text),
       comunaId: _selectedComunaId!,
       regionId: _selectedRegionId!,
     );
 
-    // Nombres legibles para el resumen del diálogo (los ids no le dicen
-    // nada al usuario).
     final regionNombre = _regiones
         .firstWhere((r) => r.id == _selectedRegionId, orElse: () => const Region(id: '', nombre: '—'))
         .nombre;
@@ -154,7 +146,6 @@ class _ConsignatarioFormScreenState extends State<ConsignatarioFormScreen> {
         .firstWhere((c) => c.id == _selectedComunaId, orElse: () => const Comuna(id: '', nombre: '—', regionId: ''))
         .nombre;
 
-    // Diálogo de confirmación consistente con Cliente y Trabajador
     final confirmado = await mostrarDialogoConfirmacion(
       context,
       titulo: 'Confirmar Registro de Consignatario',
@@ -196,63 +187,59 @@ class _ConsignatarioFormScreenState extends State<ConsignatarioFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final double anchoPantalla = MediaQuery.of(context).size.width;
+    final bool esPantallaPequena = anchoPantalla < 750;
+
     return AdminShell(
-      selectedIndex: 1, // "Cargas" en kAdminMenuItems
+      selectedIndex: 13,
+      showBackButton: true, // Flecha de retorno estándar unificada
       title: 'Formulario de Consignatario',
       subtitle: 'Ingrese la información legal y de ubicación de la empresa receptora de la mercancía.',
       eyebrow: 'GESTIÓN DE CARGAS',
       eyebrowIcon: Icons.local_shipping_outlined,
-      actions: [
-        TextButton.icon(
-          onPressed: () => Navigator.of(context).maybePop(),
-          icon: const Icon(Icons.arrow_back, size: 15),
-          label: const Text('Volver al listado'),
-          style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
-        ),
-      ],
       child: Form(
         key: _formKey,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                FormSectionCard(
-                  icon: Icons.apartment_outlined,
-                  title: 'Datos del Consignatario',
-                  subtitle: 'Campos obligatorios para la emisión del manifiesto de carga.',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      LabeledTextField(
-                        label: 'Nombre empresa',
-                        controller: _nombreEmpresaCtrl,
-                        hint: 'Ej: Distribuidora Nacional de Alimentos S.A.',
-                        icon: Icons.apartment_outlined,
-                        validator: (v) => _requerido(v, 'Ingresa el nombre de la empresa'),
-                      ),
-                      const SizedBox(height: 16),
-                      LabeledTextField(
-                        label: 'Dirección (Calle y Número)',
-                        controller: _direccionCtrl,
-                        hint: 'Ej: Av. Américo Vespucio 1234, Of. 201',
-                        icon: Icons.location_on_outlined,
-                        validator: (v) => _requerido(v, 'Ingresa la dirección'),
-                      ),
-                      const SizedBox(height: 16),
+          padding: EdgeInsets.all(esPantallaPequena ? 16.0 : 24.0),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FormSectionCard(
+                    icon: Icons.apartment_outlined,
+                    title: 'Datos del Consignatario',
+                    subtitle: 'Campos obligatorios para la emisión del manifiesto de carga.',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        LabeledTextField(
+                          label: 'Nombre empresa',
+                          controller: _nombreEmpresaCtrl,
+                          hint: 'Ej: Distribuidora Nacional de Alimentos S.A.',
+                          icon: Icons.apartment_outlined,
+                          validator: (v) => _requerido(v, 'Ingresa el nombre de la empresa'),
+                        ),
+                        const SizedBox(height: 16),
+                        LabeledTextField(
+                          label: 'Dirección (Calle y Número)',
+                          controller: _direccionCtrl,
+                          hint: 'Ej: Av. Américo Vespucio 1234, Of. 201',
+                          icon: Icons.location_on_outlined,
+                          validator: (v) => _requerido(v, 'Ingresa la dirección'),
+                        ),
+                        const SizedBox(height: 16),
 
-                      if (_errorRegiones != null) _buildErrorRegiones(),
+                        if (_errorRegiones != null) _buildErrorRegiones(),
 
-                      // Región y Comuna en selects independientes, cargados
-                      // desde Supabase.
-                      if (_errorRegiones == null)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: LabeledDropdownField(
+                        // Región y Comuna responsivos
+                        if (_errorRegiones == null)
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final bool esAncho = constraints.maxWidth > 550;
+
+                              final campoRegion = LabeledDropdownField(
                                 label: 'Región',
                                 value: _selectedRegionId,
                                 items: _regiones.map((r) => DropdownOption(r.id, r.nombre)).toList(),
@@ -261,11 +248,9 @@ class _ConsignatarioFormScreenState extends State<ConsignatarioFormScreen> {
                                 loading: _cargandoRegiones,
                                 onChanged: _onRegionChanged,
                                 validator: (v) => v == null ? 'Selecciona una región' : null,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: LabeledDropdownField(
+                              );
+
+                              final campoComuna = LabeledDropdownField(
                                 label: 'Comuna',
                                 value: _selectedComunaId,
                                 items: _comunas.map((c) => DropdownOption(c.id, c.nombre)).toList(),
@@ -275,77 +260,101 @@ class _ConsignatarioFormScreenState extends State<ConsignatarioFormScreen> {
                                 loading: _cargandoComunas,
                                 onChanged: (v) => setState(() => _selectedComunaId = v),
                                 validator: (v) => v == null ? 'Selecciona una comuna' : null,
+                              );
+
+                              if (esAncho) {
+                                return Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(child: campoRegion),
+                                    const SizedBox(width: 16),
+                                    Expanded(child: campoComuna),
+                                  ],
+                                );
+                              }
+
+                              return Column(
+                                children: [
+                                  campoRegion,
+                                  const SizedBox(height: 16),
+                                  campoComuna,
+                                ],
+                              );
+                            },
+                          ),
+
+                        const SizedBox(height: 24),
+                        const Divider(color: AppColors.border),
+                        const SizedBox(height: 18),
+
+                        // Botón de guardar (sin botón redundante de volver)
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final bool esCelular = constraints.maxWidth < 450;
+                            final botonGuardar = ElevatedButton.icon(
+                              onPressed: _guardando ? null : _guardar,
+                              icon: _guardando
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Icon(Icons.save_outlined, size: 16),
+                              label: Text(_guardando ? 'GUARDANDO...' : 'GUARDAR'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 14),
+                                textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                               ),
-                            ),
-                          ],
+                            );
+
+                            if (esCelular) {
+                              return SizedBox(
+                                width: double.infinity,
+                                child: botonGuardar,
+                              );
+                            }
+
+                            return Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                botonGuardar,
+                              ],
+                            );
+                          },
                         ),
-                      const SizedBox(height: 20),
-                      const Divider(color: AppColors.border),
-                      const SizedBox(height: 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: _guardando ? null : () => Navigator.of(context).maybePop(),
-                            icon: const Icon(Icons.close, size: 16),
-                            label: const Text('Cancelar/Volver'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.textPrimary,
-                              side: const BorderSide(color: AppColors.border),
-                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            onPressed: _guardando ? null : _guardar,
-                            icon: _guardando
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                  )
-                                : const Icon(Icons.save_outlined, size: 16),
-                            label: Text(_guardando ? 'GUARDANDO...' : 'GUARDAR'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-                              textStyle: const TextStyle(fontWeight: FontWeight.w700),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 20),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceMuted,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: const Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.apartment_outlined, size: 18, color: AppColors.textSecondary),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Asegúrese de que el nombre de la empresa coincida exactamente con la razón '
-                          'social registrada ante el Servicio de Impuestos Internos (SII) para evitar '
-                          'demoras en los procesos de despacho y recepción.',
-                          style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+                  const SizedBox(height: 20),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceMuted,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.apartment_outlined, size: 18, color: AppColors.textSecondary),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Asegúrese de que el nombre de la empresa coincida exactamente con la razón '
+                            'social registrada ante el Servicio de Impuestos Internos (SII) para evitar '
+                            'demoras en los procesos de despacho y recepción.',
+                            style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -377,5 +386,4 @@ class _ConsignatarioFormScreenState extends State<ConsignatarioFormScreen> {
       ),
     );
   }
-
 }

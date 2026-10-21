@@ -43,12 +43,17 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
     _cargarClientesDesdeSupabase();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _cargarClientesDesdeSupabase() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
 
     try {
-      // Trae todas las columnas de la tabla 'clientes'
       final data = await Supabase.instance.client
           .from('clientes')
           .select('*');
@@ -68,7 +73,6 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
           }
 
           return {
-            // Columnas directas de la base de datos
             'id': (map['id'] ?? '').toString(),
             'nombre_empresa': nombre,
             'nombre_contacto': (map['nombre_contacto'] ?? '').toString(),
@@ -84,7 +88,6 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
             'region_id': (map['region_id'] ?? '').toString(),
             'comuna_id': (map['comuna_id'] ?? '').toString(),
 
-            // Llaves que usa la UI de las tarjetas
             'nombre': nombre,
             'iniciales': iniciales,
             'contacto': (map['nombre_contacto'] ?? '').toString(),
@@ -115,9 +118,6 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
     }
   }
 
-  /// Abre el formulario de cliente en modo edición, precargado con los
-  /// datos de [item] (el Map que usa la tarjeta). Si vuelve con `true`
-  /// (se guardó algo), recarga la lista desde Supabase.
   Future<void> _abrirFormularioEdicion(Map<String, dynamic> item) async {
     final clienteExistente = Cliente(
       id: item['id'] as String?,
@@ -226,11 +226,11 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
       if (query.isEmpty) {
         _clientes = List.from(_datosOriginales);
       } else {
+        final q = query.toLowerCase().trim();
         _clientes = _datosOriginales.where((c) {
           final nombre = c['nombre'].toString().toLowerCase();
           final contacto = c['contacto'].toString().toLowerCase();
           final ciudad = c['ubicacion'].toString().toLowerCase();
-          final q = query.toLowerCase();
           return nombre.contains(q) || contacto.contains(q) || ciudad.contains(q);
         }).toList();
       }
@@ -239,11 +239,16 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final double anchoPantalla = MediaQuery.of(context).size.width;
+    final bool esPantallaPequena = anchoPantalla < 750;
+    final double paddingHorizontal = esPantallaPequena ? 16.0 : 32.0;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 24.0),
+      padding: EdgeInsets.symmetric(horizontal: paddingHorizontal, vertical: 24.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 1. Cabecera con Textos y Botones Superiores Responsivos
           LayoutBuilder(
             builder: (context, constraints) {
               final bool esPantallaAncha = constraints.maxWidth > 750;
@@ -256,11 +261,12 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
                     style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary, letterSpacing: 0.8),
                   ),
                   const SizedBox(height: 6),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 12,
+                    runSpacing: 8,
                     children: [
                       const Text('Lista de Clientes', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                      const SizedBox(width: 12),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
@@ -280,15 +286,19 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  const Text('Gestione las relaciones corporativas y detalles de contacto de su cartera logística de Transportes Contreras.', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                  const Text(
+                    'Gestione las relaciones corporativas y detalles de contacto de su cartera logística de Transportes Contreras.',
+                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  ),
                 ],
               );
 
-              final Widget bloqueBotones = Row(
-                mainAxisSize: MainAxisSize.min,
+              final Widget bloqueBotones = Wrap(
+                spacing: 12,
+                runSpacing: 10,
                 children: [
                   OutlinedButton.icon(
-                    onPressed: _exportarCsvClientes, // () {}
+                    onPressed: _exportarCsvClientes,
                     icon: const Icon(Icons.download_outlined, size: 16, color: AppColors.textPrimary),
                     label: const Text('Exportar CSV', style: TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                     style: OutlinedButton.styleFrom(
@@ -298,7 +308,6 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     ),
                   ),
-                  const SizedBox(width: 12),
                   ElevatedButton.icon(
                     onPressed: () async {
                       await Navigator.of(context).push(
@@ -311,7 +320,8 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
                       _cargarClientesDesdeSupabase();
                     },
                     icon: const Icon(Icons.add, size: 16, color: Colors.white),
-                    label: const Text('+ AGREGAR CLIENTE', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
+                    // Se quitó el '+' duplicado del texto
+                    label: const Text('AGREGAR CLIENTE', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -338,7 +348,7 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Métricas
+          // 2. Tarjetas de Métricas Responsivas
           LayoutBuilder(
             builder: (context, constraints) {
               final double cardWidth = constraints.maxWidth > 900
@@ -385,96 +395,15 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Buscador con Filtros Avanzados y Limpiar
-          Container(
-            padding: const EdgeInsets.all(12.0),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceMuted,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: _filtrarClientes,
-                      style: const TextStyle(fontSize: 13),
-                      decoration: const InputDecoration(
-                        hintText: 'Buscar por nombre de empresa, contacto o ubicación...',
-                        hintStyle: TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
-                        prefixIcon: Icon(Icons.search, size: 18, color: Color(0xFF94A3B8)),
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(vertical: 9),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.tune, size: 16, color: Color(0xFF475569)),
-                  label: const Text('Filtros Avanzados', style: TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600)),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: AppColors.surfaceMuted,
-                    side: const BorderSide(color: AppColors.border),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                TextButton(
-                  onPressed: () {
-                    _searchController.clear();
-                    _filtrarClientes('');
-                  },
-                  child: const Text('Limpiar', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary)),
-                ),
-              ],
-            ),
-          ),
+          // 3. Buscador con Filtros Avanzados y Limpiar Responsivo
+          _buildBuscadorResponsivo(esPantallaPequena),
           const SizedBox(height: 24),
 
-          // Fila Directorio Empresarial + Ordenar por + Refrescar
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  const Text('DIRECTORIO EMPRESARIAL', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 0.5)),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(10)),
-                    child: Text('${_clientes.length} Resultados', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
-                  ),
-                ],
-              ),
-              Row(
-                children: [
-                  const Text('Ordenar por:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                  const SizedBox(width: 8),
-                  const Text('Nombre (A-Z)', style: TextStyle(fontSize: 12, color: Color(0xFF1E293B), fontWeight: FontWeight.bold)),
-                  const SizedBox(width: 12),
-                  IconButton(
-                    tooltip: 'Refrescar clientes',
-                    icon: const Icon(Icons.refresh, size: 18, color: AppColors.textSecondary),
-                    onPressed: _cargarClientesDesdeSupabase,
-                  ),
-                ],
-              ),
-            ],
-          ),
+          // 4. Cabecera del Directorio Empresarial (Separada verticalmente en móvil para no solaparse)
+          _buildCabeceraDirectorio(esPantallaPequena),
           const SizedBox(height: 16),
 
-          // Grilla de Cards
+          // 5. Grilla de Tarjetas
           if (_isLoading)
             const Center(
               child: Padding(
@@ -678,7 +607,7 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
             ),
           const SizedBox(height: 28),
 
-          // Paginador
+          // 6. Paginador
           Center(
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -699,30 +628,206 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
           const Divider(height: 1, color: AppColors.border),
           const SizedBox(height: 16),
 
-          // Footer de Clientes
+          // 7. Footer Responsivo
+          _buildFooterResponsivo(esPantallaPequena),
+        ],
+      ),
+    );
+  }
+
+  // Buscador Responsivo: En PC una fila; en móvil campo arriba y botones abajo
+  Widget _buildBuscadorResponsivo(bool esPantallaPequena) {
+    final Widget campoInput = Container(
+      height: 40,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: TextField(
+        controller: _searchController,
+        onChanged: _filtrarClientes,
+        style: const TextStyle(fontSize: 13),
+        decoration: InputDecoration(
+          hintText: esPantallaPequena ? 'Buscar por empresa, contacto...' : 'Buscar por nombre de empresa, contacto o ubicación...',
+          hintStyle: const TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
+          prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF94A3B8)),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 16, color: Color(0xFF94A3B8)),
+                  onPressed: () {
+                    _searchController.clear();
+                    _filtrarClientes('');
+                  },
+                )
+              : null,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 9),
+        ),
+      ),
+    );
+
+    final Widget botonFiltros = OutlinedButton.icon(
+      onPressed: () {},
+      icon: const Icon(Icons.tune, size: 16, color: Color(0xFF475569)),
+      label: const Text('Filtros Avanzados', style: TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600)),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: AppColors.surfaceMuted,
+        side: const BorderSide(color: AppColors.border),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      ),
+    );
+
+    final Widget botonLimpiar = TextButton(
+      onPressed: () {
+        _searchController.clear();
+        _filtrarClientes('');
+      },
+      child: const Text('Limpiar', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary)),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(12.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: esPantallaPequena
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                campoInput,
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(child: botonFiltros),
+                    const SizedBox(width: 8),
+                    botonLimpiar,
+                  ],
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(child: campoInput),
+                const SizedBox(width: 12),
+                botonFiltros,
+                const SizedBox(width: 10),
+                botonLimpiar,
+              ],
+            ),
+    );
+  }
+
+  // Cabecera Directorio: Se apila verticalmente en móvil para evitar solapamientos
+  Widget _buildCabeceraDirectorio(bool esPantallaPequena) {
+    final bloqueTitulo = Row(
+      children: [
+        const Text(
+          'DIRECTORIO EMPRESARIAL',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 0.5),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(10)),
+          child: Text('${_clientes.length} Resultados', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+        ),
+      ],
+    );
+
+    final bloqueOrden = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('Ordenar por:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+        const SizedBox(width: 6),
+        const Text('Nombre (A-Z)', style: TextStyle(fontSize: 12, color: Color(0xFF1E293B), fontWeight: FontWeight.bold)),
+        const SizedBox(width: 8),
+        IconButton(
+          tooltip: 'Refrescar clientes',
+          icon: const Icon(Icons.refresh, size: 18, color: AppColors.textSecondary),
+          onPressed: _cargarClientesDesdeSupabase,
+        ),
+      ],
+    );
+
+    if (!esPantallaPequena) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [bloqueTitulo, bloqueOrden],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        bloqueTitulo,
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            bloqueOrden,
+          ],
+        ),
+      ],
+    );
+  }
+
+  // Footer Responsivo
+  Widget _buildFooterResponsivo(bool esPantallaPequena) {
+    final enlaces = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildFooterLink('Términos de Servicio'),
+        const SizedBox(width: 14),
+        _buildFooterLink('Soporte IT'),
+      ],
+    );
+
+    const servidorOperativo = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.circle, color: Colors.green, size: 7),
+        SizedBox(width: 5),
+        Text('SERVIDORES EN LÍNEA', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.green)),
+      ],
+    );
+
+    if (!esPantallaPequena) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text('© 2026 Transportes Contreras Enterprise. Sistema de Gestión Logística v2.4.1', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('© 2026 Transportes Contreras Enterprise. Sistema de Gestión Logística v2.4.1', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-              Row(
-                children: [
-                  _buildFooterLink('Términos de Servicio'),
-                  const SizedBox(width: 16),
-                  _buildFooterLink('Soporte IT'),
-                  const SizedBox(width: 16),
-                  Row(
-                    children: const [
-                      Icon(Icons.circle, color: Colors.green, size: 7),
-                      SizedBox(width: 5),
-                      Text('SERVIDORES EN LÍNEA', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.green)),
-                    ],
-                  ),
-                ],
-              ),
+              enlaces,
+              const SizedBox(width: 16),
+              servidorOperativo,
             ],
           ),
         ],
-      ),
+      );
+    }
+
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            enlaces,
+            const SizedBox(width: 16),
+            servidorOperativo,
+          ],
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          '© 2026 Transportes Contreras Enterprise. Sistema de Gestión Logística v2.4.1',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8)),
+        ),
+      ],
     );
   }
 

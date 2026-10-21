@@ -14,23 +14,9 @@ import '../../widgets/form_section_card.dart';
 
 /// Formulario de alta de un cliente (socio logístico) para el panel admin
 /// web de Transportes Contreras.
-///
-/// Cada cliente define dos juegos de tarifas, uno por tipo de camión que se
-/// le puede asignar a un viaje (camión simple o camión rampla); al asignar
-/// el viaje se cobra el juego de tarifas que corresponda según el camión
-/// usado.
-///
-/// Región y Comuna son tablas de referencia en Supabase
-/// (`regiones`/`comunas`), igual que en Consignatario: se cargan
-/// dinámicamente, las regiones al abrir el formulario y las comunas de la
-/// región elegida cada vez que cambia el Dropdown de Región.
-///
-/// Al guardar, [ClientesRepository] inserta el cliente en la tabla `clientes`
-/// de Supabase.
 class ClienteFormScreen extends StatefulWidget {
   const ClienteFormScreen({super.key, this.onGuardar});
 
-  /// Callback opcional que recibe el cliente guardado.
   final ValueChanged<Cliente>? onGuardar;
 
   @override
@@ -133,7 +119,7 @@ class _ClienteFormScreenState extends State<ClienteFormScreen> {
   void _onRegionChanged(String? regionId) {
     setState(() {
       _selectedRegionId = regionId;
-      _selectedComunaId = null; // Resetea la comuna al cambiar de región
+      _selectedComunaId = null;
       _comunas = [];
     });
     if (regionId != null) _cargarComunas(regionId);
@@ -162,10 +148,10 @@ class _ClienteFormScreenState extends State<ClienteFormScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final cliente = Cliente(
-      nombreEmpresa: _nombreEmpresaCtrl.text.trim(),
-      nombreContacto: _contactoCtrl.text.trim(),
+      nombreEmpresa: capitalizarTexto(_nombreEmpresaCtrl.text),
+      nombreContacto: capitalizarTexto(_contactoCtrl.text),
       telefono: '+56 ${_telefonoCtrl.text.trim()}',
-      direccion: _direccionCtrl.text.trim(),
+      direccion: capitalizarTexto(_direccionCtrl.text),
       comunaId: _selectedComunaId!,
       regionId: _selectedRegionId!,
       valorViajeCamion: double.parse(_valorViajeCtrl.text.trim()),
@@ -176,8 +162,6 @@ class _ClienteFormScreenState extends State<ClienteFormScreen> {
       valorPeonetaRampla: double.parse(_peonetaRamplaCtrl.text.trim()),
     );
 
-    // Nombres legibles para el resumen del diálogo (los ids no le dicen
-    // nada al usuario).
     final regionNombre = _regiones
         .firstWhere((r) => r.id == _selectedRegionId, orElse: () => const Region(id: '', nombre: '—'))
         .nombre;
@@ -252,55 +236,58 @@ class _ClienteFormScreenState extends State<ClienteFormScreen> {
     });
   }
 
+  Widget _buildBotonGuardar({bool expandido = false}) {
+    final boton = ElevatedButton.icon(
+      onPressed: _guardando ? null : _guardar,
+      icon: _guardando
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            )
+          : const Icon(Icons.save_outlined, size: 16),
+      label: Text(_guardando ? 'GUARDANDO...' : 'GUARDAR REGISTRO'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, letterSpacing: 0.3),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+
+    if (expandido) {
+      return SizedBox(
+        width: double.infinity,
+        child: boton,
+      );
+    }
+    return boton;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final double anchoPantalla = MediaQuery.of(context).size.width;
+    final bool esPantallaPequena = anchoPantalla < 750;
+
     return AdminShell(
       selectedIndex: 11,
-      showBackButton: true, // <--- HABILITA LA FLECHA DE VOLVER
+      showBackButton: true,
       title: 'Registro de Cliente',
       subtitle: 'Alta de nuevos socios logísticos en la plataforma',
-      actions: [
-        OutlinedButton.icon(
-          onPressed: () => Navigator.of(context).maybePop(),
-          icon: const Icon(Icons.close, size: 16),
-          label: const Text('CANCELAR Y VOLVER'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.textPrimary,
-            side: const BorderSide(color: AppColors.border),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-        ),
-        ElevatedButton.icon(
-          onPressed: _guardando ? null : _guardar,
-          icon: _guardando
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : const Icon(Icons.save_outlined, size: 16),
-          label: Text(_guardando ? 'GUARDANDO...' : 'GUARDAR REGISTRO'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.primary,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, letterSpacing: 0.3),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-        ),
-      ],
+      // En celular no se coloca acción en el nav para no tapar los textos
+      actions: esPantallaPequena ? null : [_buildBotonGuardar(expandido: false)],
       child: Form(
         key: _formKey,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(esPantallaPequena ? 16.0 : 24.0),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1200),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildAvisoSeguridad(),
+                  _buildAvisoSeguridad(esPantallaPequena),
                   const SizedBox(height: 20),
                   LayoutBuilder(
                     builder: (context, constraints) {
@@ -328,6 +315,13 @@ class _ClienteFormScreenState extends State<ClienteFormScreen> {
                       );
                     },
                   ),
+
+                  // Botón GUARDAR al final para celulares
+                  if (esPantallaPequena) ...[
+                    const SizedBox(height: 24),
+                    _buildBotonGuardar(expandido: true),
+                    const SizedBox(height: 12),
+                  ],
                 ],
               ),
             ),
@@ -337,7 +331,7 @@ class _ClienteFormScreenState extends State<ClienteFormScreen> {
     );
   }
 
-  Widget _buildAvisoSeguridad() {
+  Widget _buildAvisoSeguridad(bool esPantallaPequena) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -383,17 +377,19 @@ class _ClienteFormScreenState extends State<ClienteFormScreen> {
               ],
             ),
           ),
-          const SizedBox(width: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.infoBorder),
+          if (!esPantallaPequena) ...[
+            const SizedBox(width: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.infoBorder),
+              ),
+              child: const Text('Versión Web 4.0',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
             ),
-            child: const Text('Versión Web 4.0',
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
-          ),
+          ],
         ],
       ),
     );
@@ -442,39 +438,54 @@ class _ClienteFormScreenState extends State<ClienteFormScreen> {
 
               if (_errorRegiones != null) _buildErrorRegiones(),
 
-              // Región y Comuna en selects independientes, cargados desde
-              // Supabase (misma lógica que en Consignatario).
+              // Región y Comuna: 2 columnas en PC y 1 columna por fila en móvil
               if (_errorRegiones == null)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: LabeledDropdownField(
-                        label: 'Región',
-                        value: _selectedRegionId,
-                        items: _regiones.map((r) => DropdownOption(r.id, r.nombre)).toList(),
-                        icon: Icons.public_outlined,
-                        hint: 'Selecciona región',
-                        loading: _cargandoRegiones,
-                        onChanged: _onRegionChanged,
-                        validator: (v) => v == null ? 'Selecciona una región' : null,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: LabeledDropdownField(
-                        label: 'Comuna',
-                        value: _selectedComunaId,
-                        items: _comunas.map((c) => DropdownOption(c.id, c.nombre)).toList(),
-                        icon: Icons.location_on_outlined,
-                        hint: _selectedRegionId == null ? 'Primero elige región' : 'Selecciona comuna',
-                        enabled: _selectedRegionId != null,
-                        loading: _cargandoComunas,
-                        onChanged: (v) => setState(() => _selectedComunaId = v),
-                        validator: (v) => v == null ? 'Selecciona una comuna' : null,
-                      ),
-                    ),
-                  ],
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final bool esAncho = constraints.maxWidth > 550;
+
+                    final campoRegion = LabeledDropdownField(
+                      label: 'Región',
+                      value: _selectedRegionId,
+                      items: _regiones.map((r) => DropdownOption(r.id, r.nombre)).toList(),
+                      icon: Icons.public_outlined,
+                      hint: 'Selecciona región',
+                      loading: _cargandoRegiones,
+                      onChanged: _onRegionChanged,
+                      validator: (v) => v == null ? 'Selecciona una región' : null,
+                    );
+
+                    final campoComuna = LabeledDropdownField(
+                      label: 'Comuna',
+                      value: _selectedComunaId,
+                      items: _comunas.map((c) => DropdownOption(c.id, c.nombre)).toList(),
+                      icon: Icons.location_on_outlined,
+                      hint: _selectedRegionId == null ? 'Primero elige región' : 'Selecciona comuna',
+                      enabled: _selectedRegionId != null,
+                      loading: _cargandoComunas,
+                      onChanged: (v) => setState(() => _selectedComunaId = v),
+                      validator: (v) => v == null ? 'Selecciona una comuna' : null,
+                    );
+
+                    if (esAncho) {
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: campoRegion),
+                          const SizedBox(width: 16),
+                          Expanded(child: campoComuna),
+                        ],
+                      );
+                    }
+
+                    return Column(
+                      children: [
+                        campoRegion,
+                        const SizedBox(height: 16),
+                        campoComuna,
+                      ],
+                    );
+                  },
                 ),
             ],
           ),
@@ -533,8 +544,6 @@ class _ClienteFormScreenState extends State<ClienteFormScreen> {
     );
   }
 
-  /// Dos juegos de tarifas, uno por tipo de camión. Al asignar un viaje se
-  /// cobra el juego que corresponda según el camión usado.
   Widget _buildTarifas() {
     return AccentHeaderCard(
       icon: Icons.attach_money,
@@ -601,8 +610,6 @@ class _ClienteFormScreenState extends State<ClienteFormScreen> {
     );
   }
 
-  /// Chip/etiqueta que separa visualmente el bloque de tarifas de cada tipo
-  /// de camión dentro de la tarjeta de "Configuración de Tarifas".
   Widget _buildEtiquetaTipoCamion({required IconData icono, required String texto}) {
     return Align(
       alignment: Alignment.centerLeft,

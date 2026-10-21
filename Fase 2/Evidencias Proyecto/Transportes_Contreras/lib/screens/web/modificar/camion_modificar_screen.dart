@@ -10,27 +10,14 @@ import '../../../widgets/confirm_dialog.dart';
 import '../../../widgets/document_upload_field.dart';
 import '../../../widgets/form_section_card.dart';
 
+import '../../../utils/formato.dart';
+
 /// Screen dedicada a **modificar** un camión ya existente de la flota de
 /// Transportes Contreras.
-///
-/// Es una screen separada de [CamionFormScreen] (que solo crea camiones
-/// nuevos) para no mezclar la lógica de alta con la de edición. Aquí:
-/// - La **patente no se puede editar**: además de ser el identificador
-///   natural del vehículo, define la carpeta de sus documentos en Storage.
-/// - Los documentos (revisión técnica, permiso de circulación, SOAP,
-///   padrón) son opcionales de reemplazar: si no se elige un archivo
-///   nuevo para alguno, el que ya existía queda intacto.
-///
-/// Al confirmar, hace un `UPDATE` sobre la fila (por [Camion.patente]) con
-/// [CamionesRepository.actualizar] y vuelve al listado
-/// (`Navigator.pop(true)`) para que se recarguen los datos.
 class CamionModificarScreen extends StatefulWidget {
   const CamionModificarScreen({super.key, required this.camion, this.onActualizar});
 
-  /// El camión a editar. Debe traer [Camion.patente] (viene de Supabase).
   final Camion camion;
-
-  /// Callback opcional que recibe el camión ya actualizado.
   final ValueChanged<Camion>? onActualizar;
 
   @override
@@ -47,12 +34,9 @@ class _CamionModificarScreenState extends State<CamionModificarScreen> {
 
   final _repo = CamionesRepository();
 
-  // "disponible" (o "activo") se trata como disponible; cualquier otro
-  // valor, como no disponible. Mismo criterio que usa el listado.
   late bool _disponible =
       widget.camion.estado.toLowerCase() == 'disponible' || widget.camion.estado.toLowerCase() == 'activo';
 
-  // Solo se llenan si el usuario decide reemplazar el documento existente.
   XFile? _revisionFile;
   XFile? _permisoFile;
   XFile? _soapFile;
@@ -69,8 +53,6 @@ class _CamionModificarScreenState extends State<CamionModificarScreen> {
     super.dispose();
   }
 
-  /// Selector directo de solo Año usando YearPicker (igual que en el
-  /// formulario de creación).
   Future<void> _seleccionarAnio(BuildContext context) async {
     final now = DateTime.now();
     await showDialog(
@@ -108,8 +90,8 @@ class _CamionModificarScreenState extends State<CamionModificarScreen> {
     final camionActualizado = Camion(
       id: widget.camion.id,
       patente: widget.camion.patente, // no editable
-      marca: _marcaCtrl.text.trim(),
-      modelo: _modeloCtrl.text.trim(),
+      marca: capitalizarTexto(_marcaCtrl.text),
+      modelo: _modeloCtrl.text.trim().toUpperCase(),
       anio: int.parse(_anioCtrl.text.trim()),
       estado: _disponible ? 'disponible' : 'no_disponible',
       urlRevisionTecnica: widget.camion.urlRevisionTecnica,
@@ -154,7 +136,6 @@ class _CamionModificarScreenState extends State<CamionModificarScreen> {
         'Camión patente "${camionActualizado.patente}" actualizado correctamente',
         AppColors.success,
       );
-      // Vuelve al listado para que se recarguen los datos.
       Navigator.of(context).pop(true);
     } on RepositoryException catch (e) {
       if (!mounted) return;
@@ -178,14 +159,17 @@ class _CamionModificarScreenState extends State<CamionModificarScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final double anchoPantalla = MediaQuery.of(context).size.width;
+    final bool esPantallaPequena = anchoPantalla < 750;
+
     return AdminShell(
       selectedIndex: 10,
-      showBackButton: true, // <--- HABILITA LA FLECHA DE VOLVER
+      showBackButton: true,
       title: 'Gestión de Flota: Modificar Camión',
       child: Form(
         key: _formKey,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(esPantallaPequena ? 16.0 : 24.0),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1200),
@@ -195,69 +179,94 @@ class _CamionModificarScreenState extends State<CamionModificarScreen> {
                   _buildAvisoEdicion(),
                   const SizedBox(height: 20),
 
+                  // Información Técnica del Vehículo Responsiva
                   FormSectionCard(
                     icon: Icons.build_outlined,
                     title: 'Información Técnica del Vehículo',
-                    child: Column(
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final bool dosColumnas = constraints.maxWidth > 650;
+
+                        final campoMarca = LabeledTextField(
+                          label: 'Marca',
+                          controller: _marcaCtrl,
+                          hint: 'Ej: Volvo',
+                          icon: Icons.minor_crash_outlined,
+                          validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
+                        );
+
+                        final campoModelo = LabeledTextField(
+                          label: 'Modelo',
+                          controller: _modeloCtrl,
+                          hint: 'Ej: FH16',
+                          icon: Icons.local_shipping_outlined,
+                          validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
+                        );
+
+                        final campoPatente = LabeledTextField(
+                          label: 'Patente (PPU)',
+                          controller: _patenteCtrl,
+                          icon: Icons.subtitles_outlined,
+                          readOnly: true,
+                          helperText: 'La patente no se puede modificar.',
+                        );
+
+                        final campoAnio = LabeledTextField(
+                          label: 'Año de Fabricación',
+                          controller: _anioCtrl,
+                          hint: 'aaaa',
+                          icon: Icons.calendar_today_outlined,
+                          readOnly: true,
+                          onTap: () => _seleccionarAnio(context),
+                          validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
+                        );
+
+                        if (dosColumnas) {
+                          return Column(
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: campoMarca),
+                                  const SizedBox(width: 16),
+                                  Expanded(child: campoModelo),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: campoPatente),
+                                  const SizedBox(width: 16),
+                                  Expanded(child: campoAnio),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              _buildSwitchDisponible(),
+                            ],
+                          );
+                        }
+
+                        // Vista Móvil: 1 campo por fila sin aplastamiento
+                        return Column(
                           children: [
-                            Expanded(
-                              child: LabeledTextField(
-                                label: 'Marca',
-                                controller: _marcaCtrl,
-                                hint: 'Ej: Volvo',
-                                icon: Icons.minor_crash_outlined,
-                                validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: LabeledTextField(
-                                label: 'Modelo',
-                                controller: _modeloCtrl,
-                                hint: 'Ej: FH16',
-                                icon: Icons.local_shipping_outlined,
-                                validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
-                              ),
-                            ),
+                            campoMarca,
+                            const SizedBox(height: 16),
+                            campoModelo,
+                            const SizedBox(height: 16),
+                            campoPatente,
+                            const SizedBox(height: 16),
+                            campoAnio,
+                            const SizedBox(height: 16),
+                            _buildSwitchDisponible(),
                           ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: LabeledTextField(
-                                label: 'Patente (PPU)',
-                                controller: _patenteCtrl,
-                                icon: Icons.subtitles_outlined,
-                                readOnly: true,
-                                helperText: 'La patente no se puede modificar.',
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: LabeledTextField(
-                                label: 'Año de Fabricación',
-                                controller: _anioCtrl,
-                                hint: 'aaaa',
-                                icon: Icons.calendar_today_outlined,
-                                readOnly: true,
-                                onTap: () => _seleccionarAnio(context),
-                                validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        _buildSwitchDisponible(),
-                      ],
+                        );
+                      },
                     ),
                   ),
                   const SizedBox(height: 20),
 
+                  // Gestión de Documentación
                   FormSectionCard(
                     icon: Icons.folder_open_outlined,
                     title: 'Gestión de Documentación',
@@ -314,44 +323,27 @@ class _CamionModificarScreenState extends State<CamionModificarScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  Row(
-                    children: [
-                      Expanded(
-                        flex: 2,
-                        child: ElevatedButton.icon(
-                          onPressed: _guardando ? null : _actualizar,
-                          icon: _guardando
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                )
-                              : const Icon(Icons.save_outlined, size: 18),
-                          label: Text(_guardando ? 'ACTUALIZANDO...' : 'ACTUALIZAR CAMIÓN'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            textStyle: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0.3),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
+                  // Botón de Actualizar (sin botón cancelar redundante)
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _guardando ? null : _actualizar,
+                      icon: _guardando
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.save_outlined, size: 18),
+                      label: Text(_guardando ? 'ACTUALIZANDO...' : 'ACTUALIZAR CAMIÓN'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        textStyle: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0.3),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => Navigator.of(context).maybePop(),
-                          icon: const Icon(Icons.close, size: 18),
-                          label: const Text('CANCELAR Y VOLVER'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.textPrimary,
-                            side: const BorderSide(color: AppColors.border),
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ],
               ),

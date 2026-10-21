@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_colors.dart';
-// Importa tu pantalla de Login (ajusta la ruta según la ubicación de tu archivo si difiere):
 import '../screens/web/admin_login_screen.dart';
 
 class SidebarMenuItem {
@@ -89,12 +88,10 @@ class _AppSidebarState extends State<AppSidebar> {
 
     if (confirmar == true && context.mounted) {
       try {
-        // 1. Invalidar token y sesión en Supabase
         await Supabase.instance.client.auth.signOut();
 
         if (!context.mounted) return;
 
-        // 2. Notificación visual
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Sesión cerrada correctamente.'),
@@ -102,7 +99,6 @@ class _AppSidebarState extends State<AppSidebar> {
           ),
         );
 
-        // 3. Redirigir al Login y vaciar la pila de rutas
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (context) => const AdminLoginScreen()),
           (route) => false,

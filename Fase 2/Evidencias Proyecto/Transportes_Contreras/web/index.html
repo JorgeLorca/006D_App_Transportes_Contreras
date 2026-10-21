@@ -31,6 +31,20 @@
 
   <title>transportes_contreras</title>
   <link rel="manifest" href="manifest.json">
+
+  <script>
+    // Fuerza a desregistrar cualquier Service Worker previo guardado en el teléfono
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for (let registration of registrations) {
+          registration.unregister();
+        }
+      });
+      caches.keys().then(function(names) {
+        for (let name of names) caches.delete(name);
+      });
+    }
+  </script>
 </head>
 <body>
   <!--

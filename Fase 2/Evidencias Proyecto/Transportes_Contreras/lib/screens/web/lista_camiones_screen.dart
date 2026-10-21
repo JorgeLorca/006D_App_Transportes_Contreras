@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/camion.dart';
 import '../../theme/app_colors.dart';
-import '../../widgets/search_filter_bar.dart';
 import 'camion_form_screen.dart';
 import 'modificar/camion_modificar_screen.dart';
 
@@ -15,6 +14,7 @@ class ListaCamionesScreen extends StatefulWidget {
 
 class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
   final int _itemsPorPagina = 12;
+  final TextEditingController _searchController = TextEditingController();
   int _paginaActual = 1;
 
   List<Map<String, dynamic>> _datosOriginales = [];
@@ -40,6 +40,12 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
   void initState() {
     super.initState();
     _cargarCamionesDesdeSupabase();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _cargarCamionesDesdeSupabase() async {
@@ -89,16 +95,11 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
     }
   }
 
-  /// Convierte un valor de [item] a `null` si viene vacío (así es como el
-  /// mapeo de la lista representa los campos nulos: '' en vez de null).
   String? _nullSiVacio(dynamic v) {
     final texto = (v ?? '').toString();
     return texto.isEmpty ? null : texto;
   }
 
-  /// Abre la screen de edición, precargada con los datos de [item] (el Map
-  /// que usa la tarjeta). Si vuelve con `true` (se guardó algo), recarga la
-  /// lista desde Supabase.
   Future<void> _abrirFormularioEdicion(Map<String, dynamic> item) async {
     final anioRaw = item['anio'];
     final anio = anioRaw is int ? anioRaw : int.tryParse('$anioRaw') ?? DateTime.now().year;
@@ -207,11 +208,11 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
       if (query.isEmpty) {
         _camiones = List.from(_datosOriginales);
       } else {
+        final q = query.toLowerCase().trim();
         _camiones = _datosOriginales.where((c) {
           final patente = c['patente'].toString().toLowerCase();
           final marca = c['marca'].toString().toLowerCase();
           final modelo = c['modelo'].toString().toLowerCase();
-          final q = query.toLowerCase();
           return patente.contains(q) || marca.contains(q) || modelo.contains(q);
         }).toList();
       }
@@ -220,15 +221,22 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final double anchoPantalla = MediaQuery.of(context).size.width;
+    final bool esPantallaPequena = anchoPantalla < 750;
+    final double paddingHorizontal = esPantallaPequena ? 16.0 : 36.0;
+
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Banner Hero
+          // Banner Hero Adaptativo
           Container(
             width: double.infinity,
-            constraints: const BoxConstraints(minHeight: 160),
-            padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 32.0),
+            constraints: const BoxConstraints(minHeight: 140),
+            padding: EdgeInsets.symmetric(
+              horizontal: esPantallaPequena ? 20.0 : 40.0,
+              vertical: esPantallaPequena ? 24.0 : 32.0,
+            ),
             decoration: BoxDecoration(
               color: const Color(0xFF1E293B),
               gradient: LinearGradient(
@@ -244,13 +252,18 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
+              children: [
                 Text(
                   'LISTA DE CAMIONES',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
+                  style: TextStyle(
+                    fontSize: esPantallaPequena ? 20 : 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: 0.5,
+                  ),
                 ),
-                SizedBox(height: 6),
-                Text(
+                const SizedBox(height: 6),
+                const Text(
                   'Administre las unidades de su flota. Visualización rápida de patentes, marcas y modelos.',
                   style: TextStyle(fontSize: 13, color: Colors.white70, height: 1.4),
                 ),
@@ -259,61 +272,15 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
           ),
 
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 36.0, vertical: 24.0),
+            padding: EdgeInsets.symmetric(horizontal: paddingHorizontal, vertical: 24.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final bool esPantallaAncha = constraints.maxWidth > 650;
-                    final Widget buscador = SearchFilterBar(
-                      hintText: 'Buscar por patente, marca o modelo...',
-                      onSearchChanged: _filtrarCamiones,
-                    );
-
-                    final Widget botonAgregar = ElevatedButton.icon(
-                      onPressed: () async {
-                        await Navigator.of(context).push(
-                          PageRouteBuilder(
-                            pageBuilder: (_, __, ___) => const CamionFormScreen(),
-                            transitionDuration: Duration.zero,
-                            reverseTransitionDuration: Duration.zero,
-                          ),
-                        );
-                        _cargarCamionesDesdeSupabase();
-                      },
-                      icon: const Icon(Icons.add, size: 16, color: Colors.white),
-                      label: const Text('Agregar Camión', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        elevation: 0,
-                      ),
-                    );
-
-                    if (esPantallaAncha) {
-                      return Row(
-                        children: [
-                          Expanded(child: buscador),
-                          const SizedBox(width: 16),
-                          botonAgregar,
-                        ],
-                      );
-                    } else {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          buscador,
-                          const SizedBox(height: 12),
-                          botonAgregar,
-                        ],
-                      );
-                    }
-                  },
-                ),
+                // Barra de Búsqueda y Botones Responsiva
+                _buildBarraBusquedaYAcciones(esPantallaPequena),
                 const SizedBox(height: 28),
 
+                // Cabecera de la Sección
                 Row(
                   children: [
                     const Text('Inventario de Vehículos', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
@@ -333,6 +300,7 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
                 ),
                 const SizedBox(height: 16),
 
+                // Lista / Cuadrícula de Camiones
                 if (_isLoading)
                   const Center(
                     child: Padding(
@@ -442,6 +410,7 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
 
                 const SizedBox(height: 36),
 
+                // Paginación
                 Center(
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -470,32 +439,178 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
                 const Divider(height: 1, color: AppColors.border),
                 const SizedBox(height: 16),
 
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('© 2026 Transportes Contreras Enterprise • Fleet System v4.2.1', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-                    Row(
-                      children: [
-                        _buildFooterLink('Soporte Técnico'),
-                        const SizedBox(width: 16),
-                        _buildFooterLink('Privacidad'),
-                        const SizedBox(width: 16),
-                        Row(
-                          children: const [
-                            Icon(Icons.circle, color: Colors.green, size: 7),
-                            SizedBox(width: 5),
-                            Text('SERVIDOR OPERATIVO', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.green)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                // Footer Responsivo
+                _buildFooterResponsivo(esPantallaPequena),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  // Widget para el buscador + botón de filtro + botón agregar adaptado
+  Widget _buildBarraBusquedaYAcciones(bool esPantallaPequena) {
+    final Widget campoInput = TextField(
+      controller: _searchController,
+      onChanged: _filtrarCamiones,
+      decoration: InputDecoration(
+        hintText: 'Buscar por patente, marca o modelo...',
+        hintStyle: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+        prefixIcon: const Icon(Icons.search, size: 18, color: AppColors.textSecondary),
+        suffixIcon: _searchController.text.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.clear, size: 16, color: AppColors.textSecondary),
+                onPressed: () {
+                  _searchController.clear();
+                  _filtrarCamiones('');
+                },
+              )
+            : null,
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+        ),
+      ),
+    );
+
+    // Botón de filtro: con texto en PC, sólo icono en celular
+    final Widget botonFiltros = OutlinedButton(
+      onPressed: () {},
+      style: OutlinedButton.styleFrom(
+        backgroundColor: Colors.white,
+        side: const BorderSide(color: AppColors.border),
+        padding: EdgeInsets.symmetric(horizontal: esPantallaPequena ? 12 : 16, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.filter_list, size: 18, color: Color(0xFF475569)),
+          if (!esPantallaPequena) ...[
+            const SizedBox(width: 8),
+            const Text('Filtros Avanzados', style: TextStyle(color: Color(0xFF475569), fontSize: 13, fontWeight: FontWeight.w600)),
+          ],
+        ],
+      ),
+    );
+
+    final Widget botonAgregar = ElevatedButton.icon(
+      onPressed: () async {
+        await Navigator.of(context).push(
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => const CamionFormScreen(),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          ),
+        );
+        _cargarCamionesDesdeSupabase();
+      },
+      icon: const Icon(Icons.add, size: 16, color: Colors.white),
+      label: const Text('Agregar Camión', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        elevation: 0,
+      ),
+    );
+
+    if (!esPantallaPequena) {
+      // En PC: todo en una sola fila
+      return Row(
+        children: [
+          Expanded(child: campoInput),
+          const SizedBox(width: 12),
+          botonFiltros,
+          const SizedBox(width: 12),
+          botonAgregar,
+        ],
+      );
+    } else {
+      // En Celular: Buscador + Botón Filtro (icono) en la fila superior, y Agregar Camión a todo el ancho abajo
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(child: campoInput),
+              const SizedBox(width: 8),
+              botonFiltros,
+            ],
+          ),
+          const SizedBox(height: 12),
+          botonAgregar,
+        ],
+      );
+    }
+  }
+
+  // Footer limpio adaptado a pantallas pequeñas
+  Widget _buildFooterResponsivo(bool esPantallaPequena) {
+    final enlaces = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildFooterLink('Soporte Técnico'),
+        const SizedBox(width: 14),
+        _buildFooterLink('Privacidad'),
+      ],
+    );
+
+    const servidorOperativo = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.circle, color: Colors.green, size: 7),
+        SizedBox(width: 5),
+        Text('SERVIDOR OPERATIVO', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.green)),
+      ],
+    );
+
+    if (!esPantallaPequena) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text('© 2026 Transportes Contreras Enterprise • Fleet System v4.2.1', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          Row(
+            children: [
+              enlaces,
+              const SizedBox(width: 16),
+              servidorOperativo,
+            ],
+          ),
+        ],
+      );
+    }
+
+    // Estilo móvil vertical centrado sin desbordes
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            enlaces,
+            const SizedBox(width: 16),
+            servidorOperativo,
+          ],
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          '© 2026 Transportes Contreras Enterprise • Fleet System v4.2.1',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8)),
+        ),
+      ],
     );
   }
 

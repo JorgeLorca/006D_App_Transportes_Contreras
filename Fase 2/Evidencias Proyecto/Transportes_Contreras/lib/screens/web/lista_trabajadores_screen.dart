@@ -44,12 +44,17 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
     _cargarTrabajadoresDesdeSupabase();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _cargarTrabajadoresDesdeSupabase() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
 
     try {
-      // Trae todas las columnas de la tabla 'conductores'
       final data = await Supabase.instance.client
           .from('conductores')
           .select('*');
@@ -69,7 +74,6 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
           }
 
           return {
-            // Columnas reales de la base de datos
             'rut': (map['rut'] ?? '').toString(),
             'nombre_completo': nombre,
             'fecha_nacimiento': (map['fecha_nacimiento'] ?? '').toString(),
@@ -79,8 +83,6 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
             'url_cedula_identidad': (map['url_cedula_identidad'] ?? '').toString(),
             'url_licencia_conducir': (map['url_licencia_conducir'] ?? '').toString(),
             'creado_en': (map['creado_en'] ?? '').toString(),
-
-            // Variables para los widgets de la tabla
             'nombre': nombre,
             'iniciales': iniciales,
             'estado': 'Activo',
@@ -93,6 +95,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
           _trabajadores = List<Map<String, dynamic>>.from(_datosOriginales);
           _isLoading = false;
         });
+        _aplicarOrden();
       }
     } catch (e) {
       debugPrint('Error cargando trabajadores desde Supabase: $e');
@@ -106,16 +109,11 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
     }
   }
 
-  /// Convierte un valor de [item] a `null` si viene vacío (así es como el
-  /// mapeo de la lista representa los campos nulos: '' en vez de null).
   String? _nullSiVacio(dynamic v) {
     final texto = (v ?? '').toString();
     return texto.isEmpty ? null : texto;
   }
 
-  /// Abre la screen de edición, precargada con los datos de [item] (el Map
-  /// que usa la fila de la tabla). Si vuelve con `true` (se guardó algo),
-  /// recarga la lista desde Supabase.
   Future<void> _abrirFormularioEdicion(Map<String, dynamic> item) async {
     final fechaTexto = (item['fecha_nacimiento'] ?? '').toString();
     final fechaNacimiento = fechaTexto.isEmpty ? null : DateTime.tryParse(fechaTexto);
@@ -221,7 +219,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
       } else {
         _trabajadores = _datosOriginales.where((t) {
           final nombre = t['nombre'].toString().toLowerCase();
-          return nombre.contains(query.toLowerCase());
+          return nombre.contains(query.toLowerCase().trim());
         }).toList();
       }
       _aplicarOrden();
@@ -232,8 +230,8 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
     if (_criterioOrden == 1) {
       _trabajadores.sort((a, b) => a['nombre'].toString().compareTo(b['nombre'].toString()));
     } else {
+      final query = _searchController.text.toLowerCase().trim();
       _trabajadores = _datosOriginales.where((t) {
-        final query = _searchController.text.toLowerCase();
         return query.isEmpty || t['nombre'].toString().toLowerCase().contains(query);
       }).toList();
     }
@@ -245,11 +243,16 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final double anchoPantalla = MediaQuery.of(context).size.width;
+    final bool esPantallaPequena = anchoPantalla < 750;
+    final double paddingHorizontal = esPantallaPequena ? 16.0 : 32.0;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 24.0),
+      padding: EdgeInsets.symmetric(horizontal: paddingHorizontal, vertical: 24.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 1. Cabecera y Botones de Acción Superiores
           LayoutBuilder(
             builder: (context, constraints) {
               final bool esPantallaAncha = constraints.maxWidth > 750;
@@ -269,17 +272,12 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
                 ],
               );
 
-              final Widget bloqueBotones = Row(
-                mainAxisSize: MainAxisSize.min,
+              final Widget bloqueBotones = Wrap(
+                spacing: 12,
+                runSpacing: 10,
                 children: [
-                  IconButton(
-                    tooltip: 'Refrescar trabajadores',
-                    icon: const Icon(Icons.refresh, size: 20, color: AppColors.textSecondary),
-                    onPressed: _cargarTrabajadoresDesdeSupabase,
-                  ),
-                  const SizedBox(width: 8),
                   OutlinedButton.icon(
-                    onPressed: _exportarCsvTrabajadores, // <--- AQUÍ REEMPLAZAS () {}
+                    onPressed: _exportarCsvTrabajadores,
                     icon: const Icon(Icons.download_outlined, size: 16, color: AppColors.textPrimary),
                     label: const Text('Exportar CSV', style: TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                     style: OutlinedButton.styleFrom(
@@ -289,7 +287,6 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     ),
                   ),
-                  const SizedBox(width: 12),
                   ElevatedButton.icon(
                     onPressed: () async {
                       await Navigator.of(context).push(
@@ -302,7 +299,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
                       _cargarTrabajadoresDesdeSupabase();
                     },
                     icon: const Icon(Icons.person_add_alt_1, size: 16, color: Colors.white),
-                    label: const Text('+ Agregar trabajador', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
+                    label: const Text('AGREGAR TRABAJADOR', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -328,7 +325,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Métricas
+          // 2. Tarjetas de Métricas Responsivas
           LayoutBuilder(
             builder: (context, constraints) {
               final double cardWidth = constraints.maxWidth > 900
@@ -375,66 +372,11 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Buscador con Filtros Avanzados y Ordenamiento
-          Container(
-            padding: const EdgeInsets.all(12.0),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceMuted,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: _filtrarTrabajadores,
-                      style: const TextStyle(fontSize: 13),
-                      decoration: const InputDecoration(
-                        hintText: 'Buscar por nombre o apellido...',
-                        hintStyle: TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
-                        prefixIcon: Icon(Icons.search, size: 18, color: Color(0xFF94A3B8)),
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(vertical: 9),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.tune, size: 16, color: Color(0xFF475569)),
-                  label: const Text('Filtros Avanzados', style: TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600)),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: AppColors.surfaceMuted,
-                    side: const BorderSide(color: AppColors.border),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  ),
-                ),
-                const SizedBox(width: 24),
-                Row(
-                  children: [
-                    const Text('Ordenar por:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
-                    const SizedBox(width: 8),
-                    _buildBotonOrden('Recientes', 0),
-                    const SizedBox(width: 6),
-                    _buildBotonOrden('Nombre (A-Z)', 1),
-                  ],
-                ),
-              ],
-            ),
-          ),
+          // 3. Buscador, Filtros y Ordenamiento Responsivo
+          _buildZonaBuscadorYFiltros(esPantallaPequena),
           const SizedBox(height: 20),
 
-          // Tabla con truncamiento seguro
+          // 4. Tabla de Trabajadores: Diseño Original con soporte responsivo
           if (_isLoading)
             const Center(
               child: Padding(
@@ -446,215 +388,423 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
             _buildCartelSinRegistros()
           else
             Container(
+              width: double.infinity,
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: AppColors.border),
               ),
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    decoration: const BoxDecoration(
-                      border: Border(bottom: BorderSide(color: AppColors.border)),
-                    ),
-                    child: Row(
-                      children: const [
-                        Expanded(flex: 3, child: Text('Trabajador', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-                        Expanded(flex: 3, child: Text('Contacto', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-                        Expanded(flex: 2, child: Text('Estado', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-                        Expanded(flex: 2, child: Text('RUT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-                        Expanded(flex: 3, child: Text('Último Viaje', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-                        SizedBox(width: 40),
-                      ],
-                    ),
-                  ),
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _trabajadoresPaginados.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                    itemBuilder: (context, index) {
-                      final item = _trabajadoresPaginados[index];
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                        child: Row(
+              child: esPantallaPequena
+                  // EN MÓVIL: Scroll lateral con filas fijas de 800px para evitar aplastamientos
+                  ? SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SizedBox(
+                        width: 800,
+                        child: Column(
                           children: [
-                            // Avatar y Nombre
-                            Expanded(
-                              flex: 3,
-                              child: Row(
-                                children: [
-                                  CircleAvatar(
-                                    radius: 18,
-                                    backgroundColor: AppColors.surfaceMuted,
-                                    child: Text(item['iniciales'], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF334155))),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(item['nombre'], style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            // Contacto con truncamiento seguro
-                            Expanded(
-                              flex: 3,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.call, size: 12, color: Color(0xFFE67E22)),
-                                      const SizedBox(width: 6),
-                                      Expanded(
-                                        child: Text(
-                                          item['telefono'],
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 3),
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.mail_outline, size: 12, color: AppColors.textSecondary),
-                                      const SizedBox(width: 6),
-                                      Expanded(
-                                        child: Text(
-                                          item['email'],
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            // Estado
-                            Expanded(
-                              flex: 2,
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(color: AppColors.successBg, borderRadius: BorderRadius.circular(12)),
-                                  child: const Text('Activo', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.success)),
-                                ),
-                              ),
-                            ),
-                            // RUT
-                            Expanded(
-                              flex: 2,
-                              child: Text(item['rut'], style: const TextStyle(fontSize: 12, color: Color(0xFF334155), fontWeight: FontWeight.w500)),
-                            ),
-                            // Último Viaje
-                            Expanded(
-                              flex: 3,
-                              child: Text(
-                                item['ultimo_viaje'],
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontStyle: FontStyle.italic,
-                                  color: AppColors.textSecondary,
-                                ),
-                              ),
-                            ),
-                            PopupMenuButton<String>(
-                              icon: const Icon(Icons.more_vert, size: 18, color: Color(0xFF94A3B8)),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              onSelected: (accion) {
-                                if (accion == 'modificar') _abrirFormularioEdicion(item);
-                                if (accion == 'eliminar') _eliminarTrabajador(item);
-                              },
-                              itemBuilder: (ctx) => [
-                                PopupMenuItem(
-                                  value: 'modificar',
-                                  child: Row(
-                                    children: const [
-                                      Icon(Icons.edit_outlined, size: 16, color: AppColors.primary),
-                                      SizedBox(width: 8),
-                                      Text('Modificar Trabajador', style: TextStyle(fontSize: 12.5, color: AppColors.primary, fontWeight: FontWeight.bold)),
-                                    ],
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  value: 'eliminar',
-                                  child: Row(
-                                    children: const [
-                                      Icon(Icons.delete_outline, size: 16, color: Colors.red),
-                                      SizedBox(width: 8),
-                                      Text('Eliminar Trabajador', style: TextStyle(fontSize: 12.5, color: Colors.red, fontWeight: FontWeight.bold)),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
+                            _buildEncabezadoOriginal(),
+                            ..._trabajadoresPaginados.map((item) => Column(
+                                  children: [
+                                    _buildFilaOriginal(item),
+                                    const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                                  ],
+                                )),
                           ],
                         ),
-                      );
-                    },
-                  ),
-                ],
-              ),
+                      ),
+                    )
+                  // EN PC: Tu diseño original exacto con ListView.separated al 100%
+                  : Column(
+                      children: [
+                        _buildEncabezadoOriginal(),
+                        ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _trabajadoresPaginados.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                          itemBuilder: (context, index) {
+                            return _buildFilaOriginal(_trabajadoresPaginados[index]);
+                          },
+                        ),
+                      ],
+                    ),
             ),
           const SizedBox(height: 16),
 
-          // Paginador
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              RichText(
-                text: TextSpan(
-                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                  children: [
-                    const TextSpan(text: 'Mostrando '),
-                    TextSpan(text: '${_trabajadoresPaginados.length}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                    const TextSpan(text: ' de '),
-                    TextSpan(text: '${_trabajadores.length}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                    const TextSpan(text: ' trabajadores registrados'),
-                  ],
-                ),
-              ),
-              Row(
-                children: [
-                  _buildBotonNumeroPagina(1, habilitado: 1 <= _totalPaginas),
-                  const SizedBox(width: 4),
-                  _buildBotonNumeroPagina(2, habilitado: 2 <= _totalPaginas),
-                  const SizedBox(width: 4),
-                  _buildBotonNumeroPagina(3, habilitado: 3 <= _totalPaginas),
-                ],
-              ),
-            ],
-          ),
+          // 5. Paginación y Contador Responsivo
+          _buildPaginacionResponsiva(esPantallaPequena),
 
           const SizedBox(height: 48),
           const Divider(height: 1, color: AppColors.border),
           const SizedBox(height: 16),
 
-          // Footer
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('© 2026 Transportes Contreras Enterprise. Todos los derechos reservados.', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-              Row(
-                children: [
-                  _buildFooterLink('Términos y Condiciones'),
-                  const SizedBox(width: 8),
-                  const Text('•', style: TextStyle(fontSize: 11, color: Color(0xFFCBD5E1))),
-                  const SizedBox(width: 8),
-                  _buildFooterLink('Ayuda Soporte'),
-                ],
+          // 6. Footer Estandarizado Responsivo
+          _buildFooterResponsivo(esPantallaPequena),
+        ],
+      ),
+    );
+  }
+
+  // Encabezado original con su borde y padding original
+  Widget _buildEncabezadoOriginal() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      child: Row(
+        children: const [
+          Expanded(flex: 3, child: Text('Trabajador', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
+          Expanded(flex: 3, child: Text('Contacto', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
+          Expanded(flex: 2, child: Text('Estado', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
+          Expanded(flex: 2, child: Text('RUT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
+          Expanded(flex: 3, child: Text('Último Viaje', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
+          SizedBox(width: 40),
+        ],
+      ),
+    );
+  }
+
+  // Fila original exacta de tu diseño
+  Widget _buildFilaOriginal(Map<String, dynamic> item) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+      child: Row(
+        children: [
+          // Avatar y Nombre
+          Expanded(
+            flex: 3,
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppColors.surfaceMuted,
+                  child: Text(item['iniciales'], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF334155))),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    item['nombre'],
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Contacto
+          Expanded(
+            flex: 3,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.call, size: 12, color: Color(0xFFE67E22)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        item['telefono'],
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Row(
+                  children: [
+                    const Icon(Icons.mail_outline, size: 12, color: AppColors.textSecondary),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        item['email'],
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // Estado
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: AppColors.successBg, borderRadius: BorderRadius.circular(12)),
+                child: const Text('Activo', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.success)),
               ),
-            ],
+            ),
+          ),
+          // RUT
+          Expanded(
+            flex: 2,
+            child: Text(item['rut'], style: const TextStyle(fontSize: 12, color: Color(0xFF334155), fontWeight: FontWeight.w500)),
+          ),
+          // Último Viaje
+          Expanded(
+            flex: 3,
+            child: Text(
+              item['ultimo_viaje'],
+              style: const TextStyle(
+                fontSize: 12,
+                fontStyle: FontStyle.italic,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+          // Popup Menú de acciones
+          SizedBox(
+            width: 40,
+            child: PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert, size: 18, color: Color(0xFF94A3B8)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              onSelected: (accion) {
+                if (accion == 'modificar') _abrirFormularioEdicion(item);
+                if (accion == 'eliminar') _eliminarTrabajador(item);
+              },
+              itemBuilder: (ctx) => [
+                PopupMenuItem(
+                  value: 'modificar',
+                  child: Row(
+                    children: const [
+                      Icon(Icons.edit_outlined, size: 16, color: AppColors.primary),
+                      SizedBox(width: 8),
+                      Text('Modificar Trabajador', style: TextStyle(fontSize: 12.5, color: AppColors.primary, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'eliminar',
+                  child: Row(
+                    children: const [
+                      Icon(Icons.delete_outline, size: 16, color: Colors.red),
+                      SizedBox(width: 8),
+                      Text('Eliminar Trabajador', style: TextStyle(fontSize: 12.5, color: Colors.red, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  // Zona de búsqueda con filtro a la derecha en celular y botón de recarga
+  Widget _buildZonaBuscadorYFiltros(bool esPantallaPequena) {
+    final Widget campoInput = Container(
+      height: 40,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: TextField(
+        controller: _searchController,
+        onChanged: _filtrarTrabajadores,
+        style: const TextStyle(fontSize: 13),
+        decoration: InputDecoration(
+          hintText: 'Buscar por nombre o apellido...',
+          hintStyle: const TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
+          prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF94A3B8)),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 16, color: Color(0xFF94A3B8)),
+                  onPressed: () {
+                    _searchController.clear();
+                    _filtrarTrabajadores('');
+                  },
+                )
+              : null,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 9),
+        ),
+      ),
+    );
+
+    final Widget botonFiltrosIcono = OutlinedButton(
+      onPressed: () {},
+      style: OutlinedButton.styleFrom(
+        backgroundColor: AppColors.surfaceMuted,
+        side: const BorderSide(color: AppColors.border),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      ),
+      child: const Icon(Icons.tune, size: 18, color: Color(0xFF475569)),
+    );
+
+    final Widget botonFiltrosTexto = OutlinedButton.icon(
+      onPressed: () {},
+      icon: const Icon(Icons.tune, size: 16, color: Color(0xFF475569)),
+      label: const Text('Filtros Avanzados', style: TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600)),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: AppColors.surfaceMuted,
+        side: const BorderSide(color: AppColors.border),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      ),
+    );
+
+    final Widget botonRecargar = IconButton(
+      tooltip: 'Refrescar trabajadores',
+      icon: const Icon(Icons.refresh, size: 20, color: AppColors.textSecondary),
+      onPressed: _cargarTrabajadoresDesdeSupabase,
+    );
+
+    final Widget selectorOrden = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('Ordenar por:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
+        const SizedBox(width: 8),
+        _buildBotonOrden('Recientes', 0),
+        const SizedBox(width: 6),
+        _buildBotonOrden('Nombre (A-Z)', 1),
+      ],
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(12.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: esPantallaPequena
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: campoInput),
+                    const SizedBox(width: 8),
+                    botonFiltrosIcono,
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    selectorOrden,
+                    botonRecargar,
+                  ],
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(child: campoInput),
+                const SizedBox(width: 12),
+                botonFiltrosTexto,
+                const SizedBox(width: 16),
+                selectorOrden,
+                const SizedBox(width: 8),
+                botonRecargar,
+              ],
+            ),
+    );
+  }
+
+  Widget _buildPaginacionResponsiva(bool esPantallaPequena) {
+    final Widget textoConteo = RichText(
+      text: TextSpan(
+        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+        children: [
+          const TextSpan(text: 'Mostrando '),
+          TextSpan(text: '${_trabajadoresPaginados.length}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const TextSpan(text: ' de '),
+          TextSpan(text: '${_trabajadores.length}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const TextSpan(text: ' trabajadores registrados'),
+        ],
+      ),
+    );
+
+    final Widget botonesPaginador = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildBotonNumeroPagina(1, habilitado: 1 <= _totalPaginas),
+        const SizedBox(width: 4),
+        _buildBotonNumeroPagina(2, habilitado: 2 <= _totalPaginas),
+        const SizedBox(width: 4),
+        _buildBotonNumeroPagina(3, habilitado: 3 <= _totalPaginas),
+      ],
+    );
+
+    if (!esPantallaPequena) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [textoConteo, botonesPaginador],
+      );
+    }
+
+    return Column(
+      children: [
+        Center(child: textoConteo),
+        const SizedBox(height: 12),
+        Center(child: botonesPaginador),
+      ],
+    );
+  }
+
+  Widget _buildFooterResponsivo(bool esPantallaPequena) {
+    final enlaces = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildFooterLink('Soporte Técnico'),
+        const SizedBox(width: 14),
+        _buildFooterLink('Privacidad'),
+      ],
+    );
+
+    const servidorOperativo = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.circle, color: Colors.green, size: 7),
+        SizedBox(width: 5),
+        Text('SERVIDOR OPERATIVO', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.green)),
+      ],
+    );
+
+    if (!esPantallaPequena) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text('© 2026 Transportes Contreras Enterprise • Fleet System v4.2.1', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          Row(
+            children: [
+              enlaces,
+              const SizedBox(width: 16),
+              servidorOperativo,
+            ],
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            enlaces,
+            const SizedBox(width: 16),
+            servidorOperativo,
+          ],
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          '© 2026 Transportes Contreras Enterprise • Fleet System v4.2.1',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8)),
+        ),
+      ],
     );
   }
 
@@ -732,8 +882,18 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
       borderRadius: BorderRadius.circular(6),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(color: activo ? const Color(0xFFE2E8F0) : Colors.transparent, borderRadius: BorderRadius.circular(6)),
-        child: Text(texto, style: TextStyle(fontSize: 11.5, fontWeight: activo ? FontWeight.bold : FontWeight.normal, color: activo ? AppColors.textPrimary : AppColors.textSecondary)),
+        decoration: BoxDecoration(
+          color: activo ? const Color(0xFFE2E8F0) : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          texto,
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: activo ? FontWeight.bold : FontWeight.normal,
+            color: activo ? AppColors.textPrimary : AppColors.textSecondary,
+          ),
+        ),
       ),
     );
   }
@@ -769,13 +929,9 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
   Widget _buildFooterLink(String texto) {
     return InkWell(
       onTap: () {},
-      borderRadius: BorderRadius.circular(4),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4.0),
-        child: Text(
-          texto,
-          style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), decoration: TextDecoration.underline),
-        ),
+      child: Text(
+        texto,
+        style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
       ),
     );
   }

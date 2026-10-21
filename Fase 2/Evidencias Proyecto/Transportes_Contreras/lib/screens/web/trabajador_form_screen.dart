@@ -11,14 +11,10 @@ import '../../widgets/confirm_dialog.dart';
 import '../../widgets/document_upload_field.dart';
 import '../../widgets/form_section_card.dart';
 
+import '../../utils/formato.dart';
+
 /// Formulario de alta de un trabajador (conductor) para el panel admin web
 /// de Transportes Contreras.
-///
-/// Al guardar, [TrabajadoresRepository] inserta el trabajador en la tabla
-/// `conductores` de Supabase. Por ahora SIN Auth: la contraseña se captura
-/// en el formulario pero todavía no se envía a ningún lado. Los documentos
-/// (carnet y licencia) se suben al bucket `documentos_identidad` y sus rutas
-/// se guardan en la fila del trabajador.
 class TrabajadorFormScreen extends StatefulWidget {
   const TrabajadorFormScreen({super.key, this.onGuardar});
 
@@ -51,7 +47,7 @@ class _TrabajadorFormScreenState extends State<TrabajadorFormScreen> {
   XFile? _carnetFile;
   XFile? _licenciaFile;
   bool _guardando = false;
-  int _formVersion = 0; // cambia al limpiar, para reiniciar los campos de documentos
+  int _formVersion = 0;
 
   @override
   void initState() {
@@ -59,11 +55,6 @@ class _TrabajadorFormScreenState extends State<TrabajadorFormScreen> {
     _rutFocusNode.addListener(_onRutFocusChange);
   }
 
-  /// Mientras el campo tiene el foco se edita en "crudo" (solo dígitos y,
-  /// opcionalmente, una "k" al final para el verificador; sin puntos ni
-  /// guion) para no pelear con el cursor; al salir del campo se formatea
-  /// completo, con puntos de miles en el cuerpo y el guion antes del
-  /// verificador (ej: 212675883 -> 21.267.588-3, o 2348393k -> 2.348.393-K).
   void _onRutFocusChange() {
     if (_rutFocusNode.hasFocus) {
       final crudo = _rutCtrl.text.replaceAll(RegExp(r'[.-]'), '');
@@ -78,14 +69,12 @@ class _TrabajadorFormScreenState extends State<TrabajadorFormScreen> {
 
   void _formatearRut() {
     final limpio = _rutCtrl.text.replaceAll(RegExp(r'[^0-9kK]'), '');
-    if (limpio.length < 2) return; // no alcanza para separar verificador
+    if (limpio.length < 2) return;
     final cuerpo = limpio.substring(0, limpio.length - 1);
     final verificador = limpio.substring(limpio.length - 1).toUpperCase();
     setState(() => _rutCtrl.text = '${_conPuntosDeMiles(cuerpo)}-$verificador');
   }
 
-  /// Inserta puntos cada 3 dígitos contados desde la derecha (miles).
-  /// Ej: "21267588" -> "21.267.588".
   String _conPuntosDeMiles(String digitos) {
     final invertido = digitos.split('').reversed.join();
     final bloques = <String>[];
@@ -145,8 +134,6 @@ class _TrabajadorFormScreenState extends State<TrabajadorFormScreen> {
 
   String? _validarRut(String? v) {
     if (v == null || v.trim().isEmpty) return 'Ingresa el RUT';
-    // Formato esperado tras el auto-formateo: puntos de miles en el cuerpo
-    // (7 u 8 dígitos) + "-" + dígito verificador (0-9 o K).
     final regex = RegExp(r'^\d{1,2}\.\d{3}\.\d{3}-[\dkK]$');
     if (!regex.hasMatch(v.trim())) return 'Formato inválido (ej: 21.267.588-3 o 2.348.393-K)';
     return null;
@@ -176,7 +163,7 @@ class _TrabajadorFormScreenState extends State<TrabajadorFormScreen> {
     return null;
   }
 
- Future<void> _guardar() async {
+  Future<void> _guardar() async {
     if (_guardando) return;
     if (!_formKey.currentState!.validate()) return;
 
@@ -198,40 +185,34 @@ class _TrabajadorFormScreenState extends State<TrabajadorFormScreen> {
     if (!confirmado || !mounted) return;
 
     setState(() => _guardando = true);
-    
+
     try {
-      // 1. Llamamos a la Edge Function para crear las credenciales
-      // 1. Llamamos a la Edge Function
-final authResponse = await Supabase.instance.client.functions.invoke(
-  'crear_conductor',
-  body: {
-    'email': _correoCtrl.text.trim(),
-    'password': _passwordCtrl.text,
-  },
-);
+      final authResponse = await Supabase.instance.client.functions.invoke(
+        'crear_conductor',
+        body: {
+          'email': _correoCtrl.text.trim(),
+          'password': _passwordCtrl.text,
+        },
+      );
 
-// 2. Extraemos el UUID de forma segura casteando la respuesta
-final responseData = authResponse.data as Map<String, dynamic>;
-final String? authId = responseData['auth_id'];
+      final responseData = authResponse.data as Map<String, dynamic>;
+      final String? authId = responseData['auth_id'];
 
-// 3. Construimos el modelo (asegúrate de que el nombre del parámetro sea 'authId' como en tu modelo)
-final trabajador = Trabajador(
-  authId: authId, // Aquí se lo pasamos al modelo
-  nombreCompleto: _nombreCtrl.text.trim(),
-  rut: _rutCtrl.text.trim(),
-  fechaNacimiento: _fechaNacimiento,
-  correo: _correoCtrl.text.trim(),
-  telefono: '+56 ${_telefonoCtrl.text.trim()}',
-);
+      final trabajador = Trabajador(
+        authId: authId,
+        nombreCompleto: capitalizarTexto(_nombreCtrl.text),
+        rut: _rutCtrl.text.trim(),
+        fechaNacimiento: _fechaNacimiento,
+        correo: _correoCtrl.text.trim().toLowerCase(),
+        telefono: '+56 ${_telefonoCtrl.text.trim()}',
+      );
 
-      // 3. Tu repositorio sigue haciendo el trabajo pesado (INSERT en tabla y subida de archivos)
       await _repo.crear(trabajador, carnet: _carnetFile, licencia: _licenciaFile);
-      
+
       if (!mounted) return;
       widget.onGuardar?.call(trabajador);
       _mostrarMensaje('Trabajador "${trabajador.nombreCompleto}" creado correctamente', AppColors.success);
       _limpiarFormulario();
-      
     } on FunctionException catch (e) {
       if (!mounted) return;
       _mostrarMensaje('Error al crear credenciales de Auth: ${e.reasonPhrase}', Colors.red.shade700);
@@ -245,7 +226,7 @@ final trabajador = Trabajador(
     } finally {
       if (mounted) setState(() => _guardando = false);
     }
-}
+  }
 
   void _mostrarMensaje(String texto, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -274,15 +255,18 @@ final trabajador = Trabajador(
 
   @override
   Widget build(BuildContext context) {
+    final double anchoPantalla = MediaQuery.of(context).size.width;
+    final bool esPantallaPequena = anchoPantalla < 750;
+
     return AdminShell(
       selectedIndex: 12,
-      showBackButton: true, // <--- HABILITA LA FLECHA DE VOLVER
+      showBackButton: true,
       title: 'Registro de Trabajador',
       child: Form(
         key: _formKey,
         onChanged: () => setState(() {}),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(esPantallaPequena ? 16.0 : 24.0),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1200),
@@ -290,7 +274,7 @@ final trabajador = Trabajador(
                 builder: (context, constraints) {
                   final isWide = constraints.maxWidth > 860;
 
-                  final formColumn = _buildFormColumn();
+                  final formColumn = _buildFormColumn(constraints.maxWidth);
                   final sideColumn = _buildSideColumn();
 
                   if (isWide) {
@@ -319,7 +303,9 @@ final trabajador = Trabajador(
     );
   }
 
-  Widget _buildFormColumn() {
+  Widget _buildFormColumn(double contenedorWidth) {
+    final bool dosColumnas = contenedorWidth > 620;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -350,6 +336,8 @@ final trabajador = Trabajador(
           ],
         ),
         const SizedBox(height: 20),
+
+        // 1. Nombre e identificación
         FormSectionCard(
           icon: Icons.person_outline,
           title: 'Nombre y identificación',
@@ -363,72 +351,59 @@ final trabajador = Trabajador(
                 validator: _validarNombre,
               ),
               const SizedBox(height: 16),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: LabeledTextField(
-                      label: 'RUT',
-                      controller: _rutCtrl,
-                      focusNode: _rutFocusNode,
-                      hint: 'Ej: 21.267.588-3',
-                      icon: Icons.badge_outlined,
-                      keyboardType: TextInputType.text,
-                      validator: _validarRut,
-                      maxLength: 9, // 8 dígitos del cuerpo + 1 verificador
-                      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9kK]'))],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: LabeledTextField(
-                      label: 'Fecha de nacimiento',
-                      controller: _fechaCtrl,
-                      hint: 'dd/mm/aaaa',
-                      icon: Icons.calendar_today_outlined,
-                      readOnly: true,
-                      onTap: _seleccionarFecha,
-                    ),
-                  ),
-                ],
-              ),
+
+              // RUT y Fecha de Nacimiento responsivos
+              if (dosColumnas)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _buildCampoRut()),
+                    const SizedBox(width: 16),
+                    Expanded(child: _buildCampoFechaNacimiento()),
+                  ],
+                )
+              else
+                Column(
+                  children: [
+                    _buildCampoRut(),
+                    const SizedBox(height: 16),
+                    _buildCampoFechaNacimiento(),
+                  ],
+                ),
             ],
           ),
         ),
         const SizedBox(height: 20),
+
+        // 2. Información de contacto
         FormSectionCard(
           icon: Icons.mail_outline,
           title: 'Información de contacto',
           child: Column(
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: LabeledTextField(
-                      label: 'Correo electrónico',
-                      controller: _correoCtrl,
-                      hint: 'ejemplo@transcontreras.cl',
-                      icon: Icons.email_outlined,
-                      keyboardType: TextInputType.emailAddress,
-                      validator: _validarCorreo,
-                      helperText: 'Se utilizará para iniciar sesión en la plataforma.',
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: LabeledPhoneField(
-                      label: 'Teléfono de contacto',
-                      controller: _telefonoCtrl,
-                      validator: _validarTelefono,
-                    ),
-                  ),
-                ],
-              ),
+              if (dosColumnas)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _buildCampoCorreo()),
+                    const SizedBox(width: 16),
+                    Expanded(child: _buildCampoTelefono()),
+                  ],
+                )
+              else
+                Column(
+                  children: [
+                    _buildCampoCorreo(),
+                    const SizedBox(height: 16),
+                    _buildCampoTelefono(),
+                  ],
+                ),
             ],
           ),
         ),
         const SizedBox(height: 20),
+
+        // 3. Acceso a la app
         FormSectionCard(
           icon: Icons.fingerprint,
           title: 'Acceso a la app',
@@ -457,84 +432,125 @@ final trabajador = Trabajador(
                 ),
               ),
               const SizedBox(height: 16),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: LabeledTextField(
-                      label: 'Contraseña',
-                      controller: _passwordCtrl,
-                      icon: Icons.lock_outline,
-                      obscureText: _obscurePassword,
-                      validator: _validarPassword,
-                      suffixIcon: IconButton(
-                        icon: Icon(_obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                            size: 18),
-                        onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: LabeledTextField(
-                      label: 'Confirmar contraseña',
-                      controller: _confirmPasswordCtrl,
-                      icon: Icons.lock_outline,
-                      obscureText: _obscureConfirm,
-                      validator: _validarConfirmPassword,
-                      suffixIcon: IconButton(
-                        icon: Icon(_obscureConfirm ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                            size: 18),
-                        onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+
+              if (dosColumnas)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _buildCampoPassword()),
+                    const SizedBox(width: 16),
+                    Expanded(child: _buildCampoConfirmPassword()),
+                  ],
+                )
+              else
+                Column(
+                  children: [
+                    _buildCampoPassword(),
+                    const SizedBox(height: 16),
+                    _buildCampoConfirmPassword(),
+                  ],
+                ),
             ],
           ),
         ),
         const SizedBox(height: 24),
-        Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: ElevatedButton.icon(
-                onPressed: _guardando ? null : _guardar,
-                icon: _guardando
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.save_outlined, size: 18),
-                label: Text(_guardando ? 'GUARDANDO...' : 'GUARDAR REGISTRO'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  textStyle: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0.3),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
+
+        // Botón Guardar (Se eliminó "Cancelar y volver" redundante)
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _guardando ? null : _guardar,
+            icon: _guardando
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.save_outlined, size: 18),
+            label: Text(_guardando ? 'GUARDANDO...' : 'GUARDAR REGISTRO'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              textStyle: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0.3),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.close, size: 18),
-                label: const Text('CANCELAR Y VOLVER'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.textPrimary,
-                  side: const BorderSide(color: AppColors.border),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCampoRut() {
+    return LabeledTextField(
+      label: 'RUT',
+      controller: _rutCtrl,
+      focusNode: _rutFocusNode,
+      hint: 'Ej: 21.267.588-3',
+      icon: Icons.badge_outlined,
+      keyboardType: TextInputType.text,
+      validator: _validarRut,
+      maxLength: 9,
+      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9kK]'))],
+    );
+  }
+
+  Widget _buildCampoFechaNacimiento() {
+    return LabeledTextField(
+      label: 'Fecha de nacimiento',
+      controller: _fechaCtrl,
+      hint: 'dd/mm/aaaa',
+      icon: Icons.calendar_today_outlined,
+      readOnly: true,
+      onTap: _seleccionarFecha,
+    );
+  }
+
+  Widget _buildCampoCorreo() {
+    return LabeledTextField(
+      label: 'Correo electrónico',
+      controller: _correoCtrl,
+      hint: 'ejemplo@transcontreras.cl',
+      icon: Icons.email_outlined,
+      keyboardType: TextInputType.emailAddress,
+      validator: _validarCorreo,
+      helperText: 'Se utilizará para iniciar sesión en la plataforma.',
+    );
+  }
+
+  Widget _buildCampoTelefono() {
+    return LabeledPhoneField(
+      label: 'Teléfono de contacto',
+      controller: _telefonoCtrl,
+      validator: _validarTelefono,
+    );
+  }
+
+  Widget _buildCampoPassword() {
+    return LabeledTextField(
+      label: 'Contraseña',
+      controller: _passwordCtrl,
+      icon: Icons.lock_outline,
+      obscureText: _obscurePassword,
+      validator: _validarPassword,
+      suffixIcon: IconButton(
+        icon: Icon(_obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 18),
+        onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+      ),
+    );
+  }
+
+  Widget _buildCampoConfirmPassword() {
+    return LabeledTextField(
+      label: 'Confirmar contraseña',
+      controller: _confirmPasswordCtrl,
+      icon: Icons.lock_outline,
+      obscureText: _obscureConfirm,
+      validator: _validarConfirmPassword,
+      suffixIcon: IconButton(
+        icon: Icon(_obscureConfirm ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 18),
+        onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+      ),
     );
   }
 
