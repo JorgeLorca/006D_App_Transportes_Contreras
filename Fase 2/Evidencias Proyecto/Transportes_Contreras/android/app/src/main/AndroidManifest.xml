@@ -42,15 +42,20 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
-        <!-- Permite abrir enlaces web (Google Maps en el navegador) -->
+        <!-- Permite abrir enlaces web (WhatsApp en el navegador/app) -->
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
         </intent>
-        <!-- Permite abrir aplicaciones de mapas nativas (Google Maps app, Waze) -->
+        <!-- Permite abrir aplicaciones de mapas nativas -->
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="geo" />
+        </intent>
+        <!-- Permite abrir el marcador de llamadas -->
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+            <data android:scheme="tel" />
         </intent>
     </queries>
 </manifest>

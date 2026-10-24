@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart'; // NUEVO: Importación para llamadas y WhatsApp
 
 enum VistaViaje { lista, detalle, enCurso, completado }
 
 class MisViajesScreen extends StatefulWidget {
-  // NUEVO: Parámetro para decirle a la pantalla que abra el viaje activo de inmediato
   final bool abrirViajeActivo; 
   
   const MisViajesScreen({super.key, this.abrirViajeActivo = false});
@@ -71,7 +71,6 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
           _viajeActivo = activoData;
           _viajesPendientes = pendientesData;
           
-          // NUEVO: Si el Home nos pidió abrir el viaje activo y existe, saltamos directo a esa vista
           if (widget.abrirViajeActivo && _viajeActivo != null) {
             _viajeSeleccionado = _viajeActivo;
             _vistaActual = VistaViaje.enCurso;
@@ -90,8 +89,6 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
       }
     }
   }
-
-// ... EL RESTO DE TU ARCHIVO HACIA ABAJO SE MANTIENE EXACTAMENTE IGUAL ...
 
   Future<void> _iniciarRuta() async {
     if (_viajeSeleccionado == null) return;
@@ -262,23 +259,80 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
     });
   }
 
+  // NUEVO: Función para mostrar opciones de contacto
+  void _mostrarOpcionesContacto(String telefono) {
+    // Limpia el número quitando espacios o guiones (ej. +56912345678)
+    final numeroLimpio = telefono.replaceAll(RegExp(r'[^0-9+]'), '');
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Text('Contactar al Cliente', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+              ),
+              ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFFEFF6FF),
+                  child: Icon(Icons.phone, color: Colors.blue),
+                ),
+                title: const Text('Llamar por Teléfono', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () async {
+                  Navigator.pop(context); // Cierra el menú
+                  final uri = Uri.parse('tel:$numeroLimpio');
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri);
+                  } else {
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo abrir el marcador de llamadas')));
+                  }
+                },
+              ),
+              ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFFF0FDF4),
+                  child: Icon(Icons.chat, color: Colors.green),
+                ),
+                title: const Text('Enviar WhatsApp', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () async {
+                  Navigator.pop(context); // Cierra el menú
+                  // Enlace oficial universal para WhatsApp
+                  final uri = Uri.parse('https://wa.me/$numeroLimpio');
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  } else {
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo abrir WhatsApp')));
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
       appBar: AppBar(
-    backgroundColor: _primaryColor,
-    elevation: 0,
-    // NUEVO: Asegura que todos los íconos del AppBar (incluida la flecha por defecto de Flutter) sean blancos
-    iconTheme: const IconThemeData(color: Colors.white), 
-    leading: _vistaActual != VistaViaje.lista && _vistaActual != VistaViaje.completado
-        ? IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white), 
-            onPressed: _volverALista
-          )
-        : null,
-    title: const Text('Mis Viajes', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-  ),
+        backgroundColor: _primaryColor,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white), 
+        leading: _vistaActual != VistaViaje.lista && _vistaActual != VistaViaje.completado
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white), 
+                onPressed: _volverALista
+              )
+            : null,
+        title: const Text('Mis Viajes', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+      ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: _orangeColor))
           : _construirVistaActual(),
@@ -294,8 +348,6 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
     }
   }
 
-  // --- EXTRACTOR INTELIGENTE MULTI-LLAVE ---
-  // Busca entre varias posibles columnas hasta encontrar la que tiene el dato
   String _safeString(dynamic relacion, List<String> keys, String fallback) {
     if (relacion == null) return fallback;
     
@@ -389,7 +441,6 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
   }
 
   Widget _tarjetaViaje(Map<String, dynamic> viaje, {required bool esEnCurso}) {
-    // Aquí implementamos el extractor inteligente buscando múltiples nombres de columnas
     final clienteNombre = _safeString(viaje['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Cliente Desconocido');
     final consignatarioNombre = _safeString(viaje['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Destino Desconocido');
     final regionNombre = _safeString(viaje['regiones'], ['nombre', 'region'], 'Región no especificada');
@@ -517,6 +568,9 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
     
     final clienteNombre = _safeString(viaje['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Cliente Desconocido');
     final clienteDir = _safeString(viaje['clientes'], ['direccion', 'ubicacion'], '');
+    // Extraemos el teléfono del cliente (si no hay, usamos un número de prueba con prefijo de Chile para WhatsApp)
+    final clienteTelefono = _safeString(viaje['clientes'], ['telefono', 'celular', 'contacto'], '+56900000000');
+
     final consignatarioNombre = _safeString(viaje['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Destino Desconocido');
     final consignatarioDir = _safeString(viaje['consignatarios'], ['direccion', 'ubicacion'], '');
     final regionNombre = _safeString(viaje['regiones'], ['nombre', 'region'], 'Región no especificada');
@@ -633,7 +687,8 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
                         ),
                       ),
                       IconButton(
-                        onPressed: () {},
+                        // NUEVO: Al presionar se abren las opciones y se le pasa el teléfono extraído
+                        onPressed: () => _mostrarOpcionesContacto(clienteTelefono),
                         icon: const Icon(Icons.phone),
                         style: IconButton.styleFrom(backgroundColor: const Color(0xFFF1F5F9), foregroundColor: _primaryColor),
                       )
@@ -662,7 +717,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
               Text(titulo, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
               Text(subtitulo, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
             ],
-          )
+          ),
         ],
       ),
     );
