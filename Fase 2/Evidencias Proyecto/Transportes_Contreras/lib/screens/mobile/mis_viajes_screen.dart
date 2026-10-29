@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart'; // NUEVO: Importación para llamadas y WhatsApp
+import 'package:url_launcher/url_launcher.dart';
+import '../../local_db/database_helper.dart';
+import '../../local_db/sync_helper.dart';
 
 enum VistaViaje { lista, detalle, enCurso, completado }
 
 class MisViajesScreen extends StatefulWidget {
-  final bool abrirViajeActivo; 
-  
+  final bool abrirViajeActivo;
+
   const MisViajesScreen({super.key, this.abrirViajeActivo = false});
 
   @override
@@ -17,7 +19,8 @@ class MisViajesScreen extends StatefulWidget {
 class _MisViajesScreenState extends State<MisViajesScreen> {
   bool _isLoading = true;
   VistaViaje _vistaActual = VistaViaje.lista;
-  
+  String? _rutConductor;
+
   Map<String, dynamic>? _viajeSeleccionado;
   Map<String, dynamic>? _viajeActivo;
   List<dynamic> _viajesPendientes = [];
@@ -34,75 +37,82 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
   Future<void> _cargarViajes() async {
     setState(() => _isLoading = true);
     try {
-      final userId = Supabase.instance.client.auth.currentUser!.id;
-      
-      final perfil = await Supabase.instance.client
-          .from('conductores')
-          .select('rut')
-          .eq('auth_id', userId)
-          .single();
-          
-      final rut = perfil['rut'];
+      // 1. Obtener RUT desde sesión local SQLite (o Supabase como respaldo)
+      final sesionLocal = await DatabaseHelper.instance.obtenerSesionConductor();
+      if (sesionLocal != null) {
+        _rutConductor = sesionLocal['rut']?.toString();
+      } else {
+        final userId = Supabase.instance.client.auth.currentUser?.id;
+        if (userId != null) {
+          final perfil = await Supabase.instance.client
+              .from('conductores')
+              .select('rut, nombre_completo')
+              .eq('auth_id', userId)
+              .single();
+          _rutConductor = perfil['rut'].toString();
+          await DatabaseHelper.instance.guardarSesionConductor(
+            userId,
+            _rutConductor!,
+            perfil['nombre_completo'].toString(),
+          );
+        }
+      }
 
-      const querySelect = '''
-        *,
-        clientes (*),
-        regiones (*),
-        consignatarios (*),
-        camiones (*)
-      ''';
+      if (_rutConductor == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
 
-      final activoData = await Supabase.instance.client
-          .from('viajes')
-          .select(querySelect)
-          .eq('conductor_rut', rut)
-          .eq('estado', 'en_curso')
-          .maybeSingle();
+      // 2. Leer primero de SQLite para respuesta inmediata
+      await _refrescarDesdeSQLite(_rutConductor!);
 
-      final pendientesData = await Supabase.instance.client
-          .from('viajes')
-          .select(querySelect)
-          .eq('conductor_rut', rut)
-          .eq('estado', 'pendiente')
-          .order('fecha_viaje', ascending: true);
-
-      if (mounted) {
-        setState(() {
-          _viajeActivo = activoData;
-          _viajesPendientes = pendientesData;
-          
-          if (widget.abrirViajeActivo && _viajeActivo != null) {
-            _viajeSeleccionado = _viajeActivo;
-            _vistaActual = VistaViaje.enCurso;
-          }
-          
-          _isLoading = false;
-        });
+      // 3. Sincronizar en segundo plano si hay internet y actualizar UI
+      final sincronizado = await SyncHelper.sincronizarTodo(_rutConductor!);
+      if (sincronizado) {
+        await _refrescarDesdeSQLite(_rutConductor!);
       }
     } catch (e) {
       debugPrint('Error cargando viajes: $e');
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al cargar: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _refrescarDesdeSQLite(String rut) async {
+    final activos = await DatabaseHelper.instance.obtenerViajesPorEstado(rut, 'en_curso');
+    final pendientes = await DatabaseHelper.instance.obtenerViajesPorEstado(rut, 'pendiente');
+
+    if (mounted) {
+      setState(() {
+        _viajeActivo = activos.isNotEmpty ? activos.first : null;
+        _viajesPendientes = pendientes;
+
+        if (widget.abrirViajeActivo && _viajeActivo != null && _vistaActual == VistaViaje.lista) {
+          _viajeSeleccionado = _viajeActivo;
+          _vistaActual = VistaViaje.enCurso;
+        }
+
+        _isLoading = false;
+      });
     }
   }
 
   Future<void> _iniciarRuta() async {
-    if (_viajeSeleccionado == null) return;
+    if (_viajeSeleccionado == null || _rutConductor == null) return;
     setState(() => _isLoading = true);
     try {
-      await Supabase.instance.client
-          .from('viajes')
-          .update({
-            'estado': 'en_curso',
-            'iniciado_en': DateTime.now().toIso8601String(),
-          })
-          .eq('id', _viajeSeleccionado!['id']);
-          
-      await _cargarViajes(); 
+      final viajeId = _viajeSeleccionado!['id'].toString();
+
+      // 1. Guardamos el cambio inmediatamente en SQLite (funciona con o sin internet)
+      await DatabaseHelper.instance.actualizarEstadoViajeOffline(viajeId, {
+        'estado': 'en_curso',
+        'iniciado_en': DateTime.now().toIso8601String(),
+      });
+
+      // 2. Intentamos sincronizar con Supabase en segundo plano
+      SyncHelper.sincronizarTodo(_rutConductor!);
+
+      // 3. Recargamos desde SQLite y pasamos a la vista En Curso
+      await _refrescarDesdeSQLite(_rutConductor!);
       setState(() {
         _viajeSeleccionado = _viajeActivo;
         _vistaActual = VistaViaje.enCurso;
@@ -141,7 +151,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
                 const SizedBox(height: 8),
                 const Text('Complete los datos operativos para cerrar el viaje.', style: TextStyle(color: Colors.grey)),
                 const SizedBox(height: 20),
-                
+
                 TextField(
                   controller: numGuiaCtrl,
                   decoration: const InputDecoration(labelText: 'Número de Guía', border: OutlineInputBorder(), prefixIcon: Icon(Icons.receipt_long)),
@@ -189,7 +199,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                
+
                 SizedBox(
                   width: double.infinity,
                   height: 54,
@@ -223,24 +233,27 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
   }
 
   Future<void> _procesarFinalizacion(String guia, String hNocturnas, String hSabado, String tag, String petroleo, String obs) async {
-    if (_viajeSeleccionado == null) return;
+    if (_viajeSeleccionado == null || _rutConductor == null) return;
     setState(() => _isLoading = true);
-    
+
     try {
-      await Supabase.instance.client
-          .from('viajes')
-          .update({
-            'estado': 'completado',
-            'numero_guia': guia,
-            'horas_nocturnas': double.tryParse(hNocturnas.replaceAll(',', '.')) ?? 0.0,
-            'horas_sabado': double.tryParse(hSabado.replaceAll(',', '.')) ?? 0.0,
-            'monto_tag': int.tryParse(tag) ?? 0,
-            'guia_petroleo': petroleo.isEmpty ? null : petroleo,
-            'observaciones_conductor': obs.isEmpty ? null : obs,
-            'finalizado_en': DateTime.now().toIso8601String(),
-          })
-          .eq('id', _viajeSeleccionado!['id']);
-          
+      final viajeId = _viajeSeleccionado!['id'].toString();
+
+      // 1. Guardamos en SQLite inmediatamente (Offline-First)
+      await DatabaseHelper.instance.actualizarEstadoViajeOffline(viajeId, {
+        'estado': 'completado',
+        'numero_guia': guia,
+        'horas_nocturnas': double.tryParse(hNocturnas.replaceAll(',', '.')) ?? 0.0,
+        'horas_sabado': double.tryParse(hSabado.replaceAll(',', '.')) ?? 0.0,
+        'monto_tag': int.tryParse(tag) ?? 0,
+        'guia_petroleo': petroleo.isEmpty ? null : petroleo,
+        'observaciones_conductor': obs.isEmpty ? null : obs,
+        'finalizado_en': DateTime.now().toIso8601String(),
+      });
+
+      // 2. Intentamos subir a Supabase en segundo plano si hay red
+      SyncHelper.sincronizarTodo(_rutConductor!);
+
       setState(() {
         _viajeSeleccionado!['numero_guia'] = guia;
         _vistaActual = VistaViaje.completado;
@@ -253,15 +266,16 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
   }
 
   void _volverALista() {
+    if (_rutConductor != null) {
+      _refrescarDesdeSQLite(_rutConductor!);
+    }
     setState(() {
       _vistaActual = VistaViaje.lista;
       _viajeSeleccionado = null;
     });
   }
 
-  // NUEVO: Función para mostrar opciones de contacto
   void _mostrarOpcionesContacto(String telefono) {
-    // Limpia el número quitando espacios o guiones (ej. +56912345678)
     final numeroLimpio = telefono.replaceAll(RegExp(r'[^0-9+]'), '');
 
     showModalBottomSheet(
@@ -283,7 +297,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
                 ),
                 title: const Text('Llamar por Teléfono', style: TextStyle(fontWeight: FontWeight.w600)),
                 onTap: () async {
-                  Navigator.pop(context); // Cierra el menú
+                  Navigator.pop(context);
                   final uri = Uri.parse('tel:$numeroLimpio');
                   if (await canLaunchUrl(uri)) {
                     await launchUrl(uri);
@@ -299,8 +313,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
                 ),
                 title: const Text('Enviar WhatsApp', style: TextStyle(fontWeight: FontWeight.w600)),
                 onTap: () async {
-                  Navigator.pop(context); // Cierra el menú
-                  // Enlace oficial universal para WhatsApp
+                  Navigator.pop(context);
                   final uri = Uri.parse('https://wa.me/$numeroLimpio');
                   if (await canLaunchUrl(uri)) {
                     await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -324,11 +337,11 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
       appBar: AppBar(
         backgroundColor: _primaryColor,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white), 
+        iconTheme: const IconThemeData(color: Colors.white),
         leading: _vistaActual != VistaViaje.lista && _vistaActual != VistaViaje.completado
             ? IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white), 
-                onPressed: _volverALista
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: _volverALista,
               )
             : null,
         title: const Text('Mis Viajes', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
@@ -350,7 +363,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
 
   String _safeString(dynamic relacion, List<String> keys, String fallback) {
     if (relacion == null) return fallback;
-    
+
     Map? data;
     if (relacion is Map) {
       data = relacion;
@@ -373,7 +386,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
     String shortId = uuid.length >= 8 ? uuid.substring(0, 8).toUpperCase() : uuid.toUpperCase();
     return 'TRP-$shortId';
   }
-  
+
   // ================================================================= //
   // VISTA 1: LISTA DE VIAJES
   // ================================================================= //
@@ -444,10 +457,10 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
     final clienteNombre = _safeString(viaje['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Cliente Desconocido');
     final consignatarioNombre = _safeString(viaje['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Destino Desconocido');
     final regionNombre = _safeString(viaje['regiones'], ['nombre', 'region'], 'Región no especificada');
-    final idCarga = _generarIdVisual(viaje['id']);
-    
-    final fechaViaje = viaje['fecha_viaje'] ?? '--/--/----';
-    final horaCarga = viaje['hora_carga'] ?? '--:--';
+    final idCarga = _generarIdVisual(viaje['id']?.toString());
+
+    final fechaViaje = viaje['fecha_viaje']?.toString() ?? '--/--/----';
+    final horaCarga = viaje['hora_carga']?.toString() ?? '--:--';
     final pallets = viaje['pallets']?.toString() ?? '0';
 
     return GestureDetector(
@@ -564,21 +577,20 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
   // ================================================================= //
   Widget _buildDetalleViaje() {
     final viaje = _viajeSeleccionado!;
-    final idCarga = _generarIdVisual(viaje['id']);
-    
+    final idCarga = _generarIdVisual(viaje['id']?.toString());
+
     final clienteNombre = _safeString(viaje['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Cliente Desconocido');
     final clienteDir = _safeString(viaje['clientes'], ['direccion', 'ubicacion'], '');
-    // Extraemos el teléfono del cliente (si no hay, usamos un número de prueba con prefijo de Chile para WhatsApp)
     final clienteTelefono = _safeString(viaje['clientes'], ['telefono', 'celular', 'contacto'], '+56900000000');
 
     final consignatarioNombre = _safeString(viaje['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Destino Desconocido');
     final consignatarioDir = _safeString(viaje['consignatarios'], ['direccion', 'ubicacion'], '');
     final regionNombre = _safeString(viaje['regiones'], ['nombre', 'region'], 'Región no especificada');
     final patente = _safeString(viaje['camiones'], ['patente', 'placa'], 'No asignado');
-    
-    final fecha = viaje['fecha_viaje'] ?? '--/--/----';
-    final horaCarga = viaje['hora_carga'] ?? '--:--';
-    final obsAdmin = viaje['observaciones_admin'] ?? 'Sin observaciones del administrador.';
+
+    final fecha = viaje['fecha_viaje']?.toString() ?? '--/--/----';
+    final horaCarga = viaje['hora_carga']?.toString() ?? '--:--';
+    final obsAdmin = viaje['observaciones_admin']?.toString() ?? 'Sin observaciones del administrador.';
 
     return SingleChildScrollView(
       child: Column(
@@ -599,14 +611,14 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
                 Text('ID DE CARGA', style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
                 Text(idCarga, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 24),
-                
+
                 _lineaRutaBasica('ORIGEN', '$clienteNombre, $regionNombre\n$clienteDir'),
                 const Padding(
                   padding: EdgeInsets.only(left: 7.0, top: 4, bottom: 4),
                   child: SizedBox(height: 20, child: VerticalDivider(color: Colors.grey, thickness: 1)),
                 ),
                 _lineaRutaBasica('DESTINO', '$consignatarioNombre\n$consignatarioDir'),
-                
+
                 const SizedBox(height: 24),
                 Row(
                   children: [
@@ -640,7 +652,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
                   ),
                 ),
                 const SizedBox(height: 32),
-                
+
                 const Text('INFORMACIÓN LOGÍSTICA', style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
                 _cajaInfo(Icons.inventory_2_outlined, 'Carga', '${viaje['pallets'] ?? 0} Pallets'),
@@ -666,7 +678,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
                     ],
                   ),
                 ),
-                
+
                 const SizedBox(height: 32),
                 const Text('CONTACTO CLIENTE', style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
@@ -687,7 +699,6 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
                         ),
                       ),
                       IconButton(
-                        // NUEVO: Al presionar se abren las opciones y se le pasa el teléfono extraído
                         onPressed: () => _mostrarOpcionesContacto(clienteTelefono),
                         icon: const Icon(Icons.phone),
                         style: IconButton.styleFrom(backgroundColor: const Color(0xFFF1F5F9), foregroundColor: _primaryColor),
@@ -728,14 +739,14 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
   // ================================================================= //
   Widget _buildViajeEnCurso() {
     final viaje = _viajeSeleccionado!;
-    final idCarga = _generarIdVisual(viaje['id']);
-    
+    final idCarga = _generarIdVisual(viaje['id']?.toString());
+
     final clienteNombre = _safeString(viaje['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Origen Desconocido');
     final consignatarioNombre = _safeString(viaje['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Destino Desconocido');
     final patente = _safeString(viaje['camiones'], ['patente', 'placa'], 'No asignado');
-    
-    final horaCarga = viaje['hora_carga'] ?? '--:--';
-    final horaDescarga = viaje['hora_descarga'] ?? '--:--';
+
+    final horaCarga = viaje['hora_carga']?.toString() ?? '--:--';
+    final horaDescarga = viaje['hora_descarga']?.toString() ?? '--:--';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -766,10 +777,10 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          
+
           const Text('Detalles del Traslado', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
-          
+
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
@@ -788,7 +799,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          
+
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
@@ -812,7 +823,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
               ],
             ),
           ),
-          
+
           const SizedBox(height: 32),
           SizedBox(
             width: double.infinity,

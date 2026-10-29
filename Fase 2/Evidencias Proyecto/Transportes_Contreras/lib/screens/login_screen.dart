@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'conductor_home.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../local_db/database_helper.dart';
+import '../local_db/sync_helper.dart';
+import 'conductor_home.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -14,33 +16,91 @@ class _LoginScreenState extends State<LoginScreen> {
   final _rutController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _verificandoSesion = true;
 
- Future<void> _iniciarSesion() async {
-    setState(() => _isLoading = true);
-    
+  @override
+  void initState() {
+    super.initState();
+    _verificarSesionExistente();
+  }
+
+  /// Revisa si ya existe una sesión guardada en el dispositivo (Online u Offline)
+  Future<void> _verificarSesionExistente() async {
     try {
-      // 1. Capturar el RUT (Asegúrate de que el formato coincida con tu BD)
+      final session = Supabase.instance.client.auth.currentSession;
+      final sesionLocal = await DatabaseHelper.instance.obtenerSesionConductor();
+
+      if (session != null && sesionLocal != null) {
+        // Ya inició sesión antes y tenemos su RUT en SQLite: entra directo incluso sin internet
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const ConductorHome()),
+          );
+          return;
+        }
+      } else if (session != null && sesionLocal == null) {
+        // Tiene sesión de Supabase pero aún no se guardaba en SQLite
+        final conductorData = await Supabase.instance.client
+            .from('conductores')
+            .select()
+            .eq('auth_id', session.user.id)
+            .maybeSingle();
+
+        if (conductorData != null) {
+          await DatabaseHelper.instance.guardarSesionConductor(
+            session.user.id,
+            conductorData['rut'].toString(),
+            conductorData['nombre_completo'].toString(),
+          );
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const ConductorHome()),
+            );
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Verificación offline: $e');
+      // Si falló la red pero hay sesión local guardada, permitimos el paso offline
+      final sesionLocal = await DatabaseHelper.instance.obtenerSesionConductor();
+      if (sesionLocal != null && mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const ConductorHome()),
+        );
+        return;
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _verificandoSesion = false);
+      }
+    }
+  }
+
+  Future<void> _iniciarSesion() async {
+    setState(() => _isLoading = true);
+
+    try {
       String rutIngresado = _rutController.text.trim();
 
-      // 2. Ejecutar la función remota en Supabase para obtener el correo real
       final correoReal = await Supabase.instance.client
           .rpc('obtener_correo_por_rut', params: {'rut_ingresado': rutIngresado});
 
-      // Si la base de datos no devuelve un correo, el RUT no existe
       if (correoReal == null || correoReal.toString().isEmpty) {
         throw Exception('El RUT ingresado no está registrado.');
       }
 
-      // 3. Hacer el login oficial en Supabase con el correo real y la contraseña
       final response = await Supabase.instance.client.auth.signInWithPassword(
         email: correoReal.toString(),
         password: _passwordController.text.trim(),
       );
 
       final user = response.user;
-      
+
       if (user != null) {
-        // Verificar si es administrador
         final adminData = await Supabase.instance.client
             .from('administradores')
             .select()
@@ -52,12 +112,10 @@ class _LoginScreenState extends State<LoginScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Bienvenido, ${adminData['nombre_completo']}')),
             );
-            // Navigator.pushReplacement(...) al Dashboard Admin
           }
           return;
         }
 
-        // Verificar si es conductor
         final conductorData = await Supabase.instance.client
             .from('conductores')
             .select()
@@ -65,9 +123,18 @@ class _LoginScreenState extends State<LoginScreen> {
             .maybeSingle();
 
         if (conductorData != null) {
+          final rut = conductorData['rut'].toString();
+          final nombre = conductorData['nombre_completo'].toString();
+
+          // Guardamos la sesión en SQLite para futuros inicios Offline
+          await DatabaseHelper.instance.guardarSesionConductor(user.id, rut, nombre);
+
+          // Descargamos todos sus viajes inmediatamente a la base local
+          await SyncHelper.sincronizarTodo(rut);
+
           if (mounted) {
             Navigator.pushReplacement(
-              context, 
+              context,
               MaterialPageRoute(builder: (context) => const ConductorHome()),
             );
           }
@@ -80,7 +147,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Error: RUT no registrado o contraseña incorrecta.'),
+            content: Text('Error: RUT no registrado, contraseña incorrecta o sin conexión.'),
             backgroundColor: Colors.red,
           ),
         );
@@ -92,28 +159,32 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_verificandoSesion) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(child: CircularProgressIndicator(color: Color(0xFFE67E22))),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start, 
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. HEADER (Logo de la empresa)
               Center(
                 child: Padding(
                   padding: const EdgeInsets.only(top: 20.0),
                   child: Image.asset(
                     'assets/images/logo_transportes.jpeg',
-                    height: 160, 
+                    height: 160,
                     fit: BoxFit.contain,
                   ),
                 ),
               ),
               const SizedBox(height: 40),
-
-              // 2. TEXTOS DE BIENVENIDA
               const Text(
                 'Bienvenido de nuevo',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
@@ -124,30 +195,27 @@ class _LoginScreenState extends State<LoginScreen> {
                 style: TextStyle(fontSize: 14, color: Colors.grey[600], height: 1.4),
               ),
               const SizedBox(height: 32),
-
-              // 3. FORMULARIO EXCLUSIVO DE RUT
               const Text('RUT de Usuario', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               TextField(
-  controller: _rutController,
-  keyboardType: TextInputType.text,
-  inputFormatters: [
-    LengthLimitingTextInputFormatter(12), // Limita el largo máximo
-    RutFormatter(), // Nuestro formateador personalizado
-  ],
-  decoration: InputDecoration(
-    hintText: '12.345.678-9',
-    filled: true,
-    fillColor: Colors.grey[100],
-    border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: BorderSide.none,
-    ),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-  ),
-),
+                controller: _rutController,
+                keyboardType: TextInputType.text,
+                inputFormatters: [
+                  LengthLimitingTextInputFormatter(12),
+                  RutFormatter(),
+                ],
+                decoration: InputDecoration(
+                  hintText: '12.345.678-9',
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                ),
+              ),
               const SizedBox(height: 20),
-              
               const Text('Contraseña', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               TextField(
@@ -164,8 +232,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                 ),
               ),
-              
-              // Olvidaste tu clave
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
@@ -174,8 +240,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Botón Iniciar Sesión
               SizedBox(
                 width: double.infinity,
                 height: 54,
@@ -198,8 +262,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 40),
-
-              // 4. FOOTER 
               Center(
                 child: Column(
                   children: [
@@ -250,26 +312,23 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 }
+
 class RutFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(
       TextEditingValue oldValue, TextEditingValue newValue) {
-    
     if (newValue.text.isEmpty) return newValue;
 
-    // 1. Limpiar todo lo que no sea número o la letra K
     String cleanText = newValue.text.replaceAll(RegExp(r'[^0-9kK]'), '').toUpperCase();
     if (cleanText.isEmpty) return newValue.copyWith(text: '');
 
-    // 2. Separar el dígito verificador del resto del RUT
     String formatted = '';
     int length = cleanText.length;
 
     if (length > 1) {
       String rut = cleanText.substring(0, length - 1);
       String dv = cleanText.substring(length - 1);
-      
-      // 3. Agregar los puntos cada 3 números
+
       String rutWithDots = '';
       int dotCount = 0;
       for (int i = rut.length - 1; i >= 0; i--) {
@@ -280,7 +339,6 @@ class RutFormatter extends TextInputFormatter {
           dotCount = 0;
         }
       }
-      // 4. Unir el cuerpo con el guion y el DV
       formatted = '$rutWithDots-$dv';
     } else {
       formatted = cleanText;

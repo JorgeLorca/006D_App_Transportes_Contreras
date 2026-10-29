@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart'; 
-import 'mobile/mis_viajes_screen.dart'; 
+import 'package:url_launcher/url_launcher.dart';
+import '../local_db/database_helper.dart';
+import '../local_db/sync_helper.dart';
+import 'mobile/mis_viajes_screen.dart';
+import 'mobile/combustible_screen.dart';
 
 class ConductorHome extends StatefulWidget {
   const ConductorHome({super.key});
@@ -13,8 +16,9 @@ class ConductorHome extends StatefulWidget {
 class _ConductorHomeState extends State<ConductorHome> {
   int _selectedIndex = 0;
   bool _isLoading = true;
+  bool _estaOnline = true;
   String _nombreConductor = 'Conductor';
-  
+
   Map<String, dynamic>? _viajeActivo;
   List<dynamic> _viajesPendientes = [];
   int _totalViajesMes = 0;
@@ -27,70 +31,88 @@ class _ConductorHomeState extends State<ConductorHome> {
 
   Future<void> _cargarDatosDashboard() async {
     try {
-      final userId = Supabase.instance.client.auth.currentUser!.id;
+      String? rut;
+      String? nombre;
 
-      final perfil = await Supabase.instance.client
-          .from('conductores')
-          .select('rut, nombre_completo')
-          .eq('auth_id', userId)
-          .single();
+      // 1. Primero leemos la sesión local en SQLite (funciona sin internet)
+      final sesionLocal = await DatabaseHelper.instance.obtenerSesionConductor();
+      if (sesionLocal != null) {
+        rut = sesionLocal['rut']?.toString();
+        nombre = sesionLocal['nombre_completo']?.toString();
+      }
 
-      _nombreConductor = perfil['nombre_completo'];
-      final rut = perfil['rut'];
+      // 2. Si no estaba en SQLite pero sí hay sesión en Supabase, la rescatamos y guardamos
+      if (rut == null) {
+        final user = Supabase.instance.client.auth.currentUser;
+        if (user != null) {
+          final perfil = await Supabase.instance.client
+              .from('conductores')
+              .select('rut, nombre_completo')
+              .eq('auth_id', user.id)
+              .single();
+          rut = perfil['rut'].toString();
+          nombre = perfil['nombre_completo'].toString();
+          await DatabaseHelper.instance.guardarSesionConductor(user.id, rut, nombre);
+        }
+      }
 
-      const querySelect = '''
-        *,
-        clientes (*),
-        regiones (*),
-        consignatarios (*)
-      ''';
+      if (rut == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
 
-      final activoData = await Supabase.instance.client
-          .from('viajes')
-          .select(querySelect)
-          .eq('conductor_rut', rut)
-          .eq('estado', 'en_curso')
-          .limit(1)
-          .maybeSingle();
+      _nombreConductor = nombre ?? 'Conductor';
 
-      final pendientesData = await Supabase.instance.client
-          .from('viajes')
-          .select(querySelect)
-          .eq('conductor_rut', rut)
-          .eq('estado', 'pendiente')
-          .order('fecha_viaje', ascending: true)
-          .limit(3); 
+      // 3. LECTURA RÁPIDA DESDE SQLITE (Muestra la pantalla de inmediato sin esperar red)
+      await _leerDesdeSQLite(rut);
 
-      final countResponse = await Supabase.instance.client
-          .from('viajes')
-          .select('id')
-          .eq('conductor_rut', rut)
-          .eq('estado', 'completado'); 
-
+      // 4. SINCRONIZACIÓN EN SEGUNDO PLANO CON SUPABASE
+      final sincronizado = await SyncHelper.sincronizarTodo(rut);
       if (mounted) {
-        setState(() {
-          _viajeActivo = activoData;
-          _viajesPendientes = pendientesData;
-          _totalViajesMes = countResponse.length;
-          _isLoading = false;
-        });
+        setState(() => _estaOnline = sincronizado);
+      }
+
+      // 5. Si sincronizó con éxito, refrescamos la vista con los datos recién descargados
+      if (sincronizado) {
+        await _leerDesdeSQLite(rut);
       }
     } catch (e) {
       debugPrint('Error cargando dashboard: $e');
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al cargar: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _leerDesdeSQLite(String rut) async {
+    final activosLocal = await DatabaseHelper.instance.obtenerViajesPorEstado(rut, 'en_curso');
+    final pendientesLocal = await DatabaseHelper.instance.obtenerViajesPorEstado(rut, 'pendiente');
+    final completadosLocal = await DatabaseHelper.instance.obtenerViajesPorEstado(rut, 'completado');
+
+    if (mounted) {
+      setState(() {
+        _viajeActivo = activosLocal.isNotEmpty ? activosLocal.first : null;
+        _viajesPendientes = pendientesLocal.take(3).toList();
+        _totalViajesMes = completadosLocal.length;
+        _isLoading = false;
+      });
     }
   }
 
   void _onItemTapped(int index) {
-    if (index == 1) { 
+    if (index == 1) {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => const MisViajesScreen()),
+      ).then((_) {
+        setState(() => _isLoading = true);
+        _cargarDatosDashboard();
+      });
+    } else if (index == 3) {
+      // Abre el Historial de Combustible al tocar el ícono de la barra inferior
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const CombustibleScreen(vistaInicial: VistaCombustible.historial),
+        ),
       ).then((_) {
         setState(() => _isLoading = true);
         _cargarDatosDashboard();
@@ -127,7 +149,6 @@ class _ConductorHomeState extends State<ConductorHome> {
     return hora;
   }
 
-  // NUEVO: Generador del ID visual (TRP-XXXXX) para el Home
   String _generarIdVisual(String? uuid) {
     if (uuid == null || uuid.isEmpty) return 'N/A';
     String shortId = uuid.length >= 8 ? uuid.substring(0, 8).toUpperCase() : uuid.toUpperCase();
@@ -153,13 +174,17 @@ class _ConductorHomeState extends State<ConductorHome> {
           children: [
             Icon(Icons.local_shipping, color: Colors.white, size: 24),
             SizedBox(width: 8),
-            Text('TRANSPORTES CONTRERAS', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('TRANSPORTES CONTRERAS', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.notifications_none, color: Colors.white),
-            onPressed: () {},
+            icon: const Icon(Icons.sync, color: Colors.white),
+            tooltip: 'Sincronizar ahora',
+            onPressed: () {
+              setState(() => _isLoading = true);
+              _cargarDatosDashboard();
+            },
           )
         ],
       ),
@@ -185,15 +210,26 @@ class _ConductorHomeState extends State<ConductorHome> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
+                    color: (_estaOnline ? Colors.green : const Color(0xFFE67E22)).withOpacity(0.1),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.green),
+                    border: Border.all(color: _estaOnline ? Colors.green : const Color(0xFFE67E22)),
                   ),
-                  child: const Row(
+                  child: Row(
                     children: [
-                      Icon(Icons.cloud_done, color: Colors.green, size: 16),
-                      SizedBox(width: 4),
-                      Text('Sincronizado', style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold)),
+                      Icon(
+                        _estaOnline ? Icons.cloud_done : Icons.cloud_off,
+                        color: _estaOnline ? Colors.green : const Color(0xFFE67E22),
+                        size: 16,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _estaOnline ? 'Sincronizado' : 'Modo Offline',
+                        style: TextStyle(
+                          color: _estaOnline ? Colors.green : const Color(0xFFE67E22),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -204,22 +240,24 @@ class _ConductorHomeState extends State<ConductorHome> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('VIAJE ACTIVO', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey)),
-                Text('${_viajesPendientes.length} pendientes', style: const TextStyle(fontSize: 14, color: Color(0xFFE67E22), fontWeight: FontWeight.bold)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _buildViajeActivoCard(),
-            const SizedBox(height: 24),
-
-            const Text('ACCIONES RÁPIDAS', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey)),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildActionCard(Icons.access_time, 'Iniciar\nTurno', Colors.blue),
-                _buildActionCard(Icons.local_gas_station, 'Cargar\nCombustible', const Color(0xFFE67E22)),
-                _buildActionCard(Icons.warning_amber_rounded, 'Reportar\nIncidente', Colors.red),
+                _buildActionCard(Icons.access_time, 'Iniciar\nTurno', Colors.blue, onTap: () {}),
+                _buildActionCard(
+                  Icons.local_gas_station,
+                  'Cargar\nCombustible',
+                  const Color(0xFFE67E22),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const CombustibleScreen(vistaInicial: VistaCombustible.formulario),
+                      ),
+                    ).then((_) {
+                      setState(() => _isLoading = true);
+                      _cargarDatosDashboard();
+                    });
+                  },
+                ),
+                _buildActionCard(Icons.warning_amber_rounded, 'Reportar\nIncidente', Colors.red, onTap: () {}),
               ],
             ),
             const SizedBox(height: 24),
@@ -243,7 +281,6 @@ class _ConductorHomeState extends State<ConductorHome> {
           ],
         ),
       ),
-      
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
@@ -273,17 +310,16 @@ class _ConductorHomeState extends State<ConductorHome> {
 
     final clienteNombre = _safeString(_viajeActivo!['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Origen Desconocido');
     final consignatarioNombre = _safeString(_viajeActivo!['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Destino Desconocido');
-    
-    // Extraemos el ID y las horas
-    final idCarga = _generarIdVisual(_viajeActivo!['id']);
-    final horaCarga = _formatearHora(_viajeActivo!['hora_carga']);
-    final horaDescarga = _formatearHora(_viajeActivo!['hora_descarga']);
-    
+
+    final idCarga = _generarIdVisual(_viajeActivo!['id']?.toString());
+    final horaCarga = _formatearHora(_viajeActivo!['hora_carga']?.toString());
+    final horaDescarga = _formatearHora(_viajeActivo!['hora_descarga']?.toString());
+
     final direccionDestino = _safeString(_viajeActivo!['consignatarios'], ['direccion', 'ubicacion'], '');
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF0F172A), 
+        color: const Color(0xFF0F172A),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4))],
       ),
@@ -328,8 +364,8 @@ class _ConductorHomeState extends State<ConductorHome> {
                   child: OutlinedButton(
                     onPressed: () {
                       Navigator.push(
-                        context, 
-                        MaterialPageRoute(builder: (context) => const MisViajesScreen(abrirViajeActivo: true))
+                        context,
+                        MaterialPageRoute(builder: (context) => const MisViajesScreen(abrirViajeActivo: true)),
                       ).then((_) {
                         setState(() => _isLoading = true);
                         _cargarDatosDashboard();
@@ -367,7 +403,6 @@ class _ConductorHomeState extends State<ConductorHome> {
     );
   }
 
-  // MODIFICADO: Ahora acepta la hora y la alinea a la derecha
   Widget _buildRutaRow(String label, String value, String hora) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -393,14 +428,14 @@ class _ConductorHomeState extends State<ConductorHome> {
     );
   }
 
-  Widget _buildActionCard(IconData icon, String text, Color color) {
+  Widget _buildActionCard(IconData icon, String text, Color color, {VoidCallback? onTap}) {
     return Expanded(
       child: Card(
         elevation: 0,
         color: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: InkWell(
-          onTap: () {},
+          onTap: onTap ?? () {},
           borderRadius: BorderRadius.circular(12),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 16.0),
@@ -408,7 +443,11 @@ class _ConductorHomeState extends State<ConductorHome> {
               children: [
                 Icon(icon, color: color, size: 32),
                 const SizedBox(height: 8),
-                Text(text, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                Text(
+                  text,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                ),
               ],
             ),
           ),
@@ -429,11 +468,11 @@ class _ConductorHomeState extends State<ConductorHome> {
       children: _viajesPendientes.map((viaje) {
         final clienteNombre = _safeString(viaje['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Cliente');
         final consignatarioNombre = _safeString(viaje['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Consignatario');
-        
+
         final tituloViaje = '$clienteNombre / $consignatarioNombre';
-        
-        final horaCarga = _formatearHora(viaje['hora_carga']);
-        final horaDescarga = _formatearHora(viaje['hora_descarga']);
+
+        final horaCarga = _formatearHora(viaje['hora_carga']?.toString());
+        final horaDescarga = _formatearHora(viaje['hora_descarga']?.toString());
         final subtituloHoras = '$horaCarga / $horaDescarga';
 
         return Card(
@@ -451,10 +490,10 @@ class _ConductorHomeState extends State<ConductorHome> {
             subtitle: Text(subtituloHoras, style: const TextStyle(color: Colors.grey, fontSize: 12)),
             trailing: const Icon(Icons.chevron_right, color: Colors.grey),
             onTap: () {
-               Navigator.push(context, MaterialPageRoute(builder: (context) => const MisViajesScreen())).then((_) {
-                  setState(() => _isLoading = true);
-                  _cargarDatosDashboard();
-               });
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const MisViajesScreen())).then((_) {
+                setState(() => _isLoading = true);
+                _cargarDatosDashboard();
+              });
             },
           ),
         );
