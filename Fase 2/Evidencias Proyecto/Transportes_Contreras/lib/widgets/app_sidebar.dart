@@ -218,6 +218,12 @@ class _AppSidebarState extends State<AppSidebar> {
                             isSelected: widget.selectedIndex == 13,
                             onTap: () => widget.onItemSelected?.call(13),
                           ),
+                          _buildSubmenuItem(
+                            label: 'Registros de Combustible',
+                            icon: Icons.local_gas_station_outlined,
+                            isSelected: widget.selectedIndex == 15,
+                            onTap: () => widget.onItemSelected?.call(15),
+                          ),
                         ],
                       ),
                     ),

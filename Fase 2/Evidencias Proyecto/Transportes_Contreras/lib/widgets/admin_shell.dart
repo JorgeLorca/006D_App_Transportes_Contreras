@@ -7,6 +7,7 @@ import '../screens/web/lista_trabajadores_screen.dart';
 import '../screens/web/admin_home_screen.dart';
 import '../screens/web/lista_consignatarios_screen.dart';
 import '../screens/web/asignar_viaje_screen.dart';
+import '../screens/web/lista_registros_combustible_screen.dart';
 
 class AdminShell extends StatefulWidget {
   const AdminShell({
@@ -88,7 +89,20 @@ class _AdminShellState extends State<AdminShell> {
       return;
     }
 
-    if ((index > 0 && index < 10) || index > 14) {
+    // 15 = Gestión Administrativa > Registros de Combustible
+    if (index == 15) {
+      if (_currentIndex == 15) return;
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) => const ListaRegistrosCombustibleScreen(),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+        ),
+      );
+      return;
+    }
+
+    if ((index > 0 && index < 10) || index > 15) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Módulo $index en construcción.')),
       );
