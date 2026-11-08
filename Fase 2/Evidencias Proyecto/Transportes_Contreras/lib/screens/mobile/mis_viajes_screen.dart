@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../local_db/database_helper.dart';
 import '../../local_db/sync_helper.dart';
+import 'incidentes_screen.dart';
 
 enum VistaViaje { lista, detalle, enCurso, completado }
 
@@ -827,6 +828,32 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
           const SizedBox(height: 32),
           SizedBox(
             width: double.infinity,
+            height: 50,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => IncidentesScreen(
+                      viajeIdInicial: viaje['id']?.toString(),
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626)),
+              label: const Text(
+                'REPORTAR INCIDENCIA EN RUTA',
+                style: TextStyle(color: Color(0xFFDC2626), fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFFDC2626), width: 1.5),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
             height: 54,
             child: ElevatedButton.icon(
               onPressed: _mostrarFormularioFinalizacion,
@@ -839,6 +866,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
       ),
     );
   }
+  
 
   Widget _lineaHojaRuta(IconData icon, Color color, String titulo, String subtitulo) {
     return Row(

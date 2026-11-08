@@ -22,16 +22,24 @@ class SyncHelper {
     if (!online) return false;
 
     try {
-      // 0. Descargar el catálogo completo de camiones para que el chofer pueda elegir patente
+      // 0. Catálogo de camiones
       await _descargarCatalogoCamiones();
 
-      // 1. Subir y descargar Viajes
+      // 1. Viajes
       await _subirCambiosPendientesViajes();
       await _descargarViajesDelConductor(rutConductor);
 
-      // 2. Subir y descargar Combustible
+      // 2. Combustible
       await _subirCombustiblesPendientes();
       await _descargarCombustiblesDelConductor(rutConductor);
+
+      // 3. Asistencia
+      await _subirAsistenciasPendientes();
+      await _descargarAsistenciasDelConductor(rutConductor);
+
+      // 4. Incidentes en Ruta
+      await _subirIncidentesPendientes();
+      await _descargarIncidentesDelConductor(rutConductor);
 
       return true;
     } catch (e) {
@@ -52,7 +60,7 @@ class SyncHelper {
   }
 
   // ================================================================= //
-  // SINCRONIZACIÓN DE VIAJES
+  // 1. SINCRONIZACIÓN DE VIAJES
   // ================================================================= //
   static Future<void> _subirCambiosPendientesViajes() async {
     final pendientes = await DatabaseHelper.instance.obtenerViajesNoSincronizados();
@@ -106,7 +114,7 @@ class SyncHelper {
   }
 
   // ================================================================= //
-  // SINCRONIZACIÓN DE COMBUSTIBLE
+  // 2. SINCRONIZACIÓN DE COMBUSTIBLE
   // ================================================================= //
   static Future<void> _subirCombustiblesPendientes() async {
     final pendientes = await DatabaseHelper.instance.obtenerCombustiblesNoSincronizados();
@@ -118,18 +126,27 @@ class SyncHelper {
 
         final localVoucher = reg['local_path_voucher']?.toString();
         if (localVoucher != null && localVoucher.isNotEmpty && File(localVoucher).existsSync()) {
-          urlVoucher = await _intentarSubirFotoStorage(localVoucher, 'voucher_${reg['id']}.jpg') ?? urlVoucher;
+          urlVoucher = await _intentarSubirFotoStorage(
+                'evidencias_combustible',
+                localVoucher,
+                'voucher_${reg['id']}.jpg',
+              ) ??
+              urlVoucher;
         }
 
         final localTablero = reg['local_path_tablero']?.toString();
         if (localTablero != null && localTablero.isNotEmpty && File(localTablero).existsSync()) {
-          urlTablero = await _intentarSubirFotoStorage(localTablero, 'tablero_${reg['id']}.jpg') ?? urlTablero;
+          urlTablero = await _intentarSubirFotoStorage(
+                'evidencias_combustible',
+                localTablero,
+                'tablero_${reg['id']}.jpg',
+              ) ??
+              urlTablero;
         }
 
         String? camionId = reg['camion_id']?.toString();
         final String patenteElegida = (reg['camion_patente'] ?? '').toString().trim().toUpperCase();
 
-        // Si el chofer escribió otra patente manualmente, buscamos su ID en Supabase o la registramos
         if ((camionId == null || camionId.trim().isEmpty) && patenteElegida.isNotEmpty) {
           final busqPatente = await Supabase.instance.client
               .from('camiones')
@@ -187,18 +204,16 @@ class SyncHelper {
     }
   }
 
-  static Future<String?> _intentarSubirFotoStorage(String filePath, String fileName) async {
+  static Future<String?> _intentarSubirFotoStorage(String bucket, String filePath, String fileName) async {
     try {
       final file = File(filePath);
       await Supabase.instance.client.storage
-          .from('evidencias_combustible')
+          .from(bucket)
           .upload(fileName, file, fileOptions: const FileOptions(upsert: true));
 
-      return Supabase.instance.client.storage
-          .from('evidencias_combustible')
-          .getPublicUrl(fileName);
+      return Supabase.instance.client.storage.from(bucket).getPublicUrl(fileName);
     } catch (e) {
-      debugPrint('No se pudo subir imagen al bucket evidencias_combustible: $e');
+      debugPrint('No se pudo subir imagen al bucket $bucket: $e');
       return null;
     }
   }
@@ -216,6 +231,124 @@ class SyncHelper {
       }
     } catch (e) {
       debugPrint('Aviso al descargar historial de combustible: $e');
+    }
+  }
+
+  // ================================================================= //
+  // 3. SINCRONIZACIÓN DE ASISTENCIA
+  // ================================================================= //
+  static Future<void> _subirAsistenciasPendientes() async {
+    final pendientes = await DatabaseHelper.instance.obtenerAsistenciasNoSincronizadas();
+
+    for (final reg in pendientes) {
+      try {
+        final insertData = <String, dynamic>{
+          'id': reg['id'],
+          'conductor_rut': reg['conductor_rut'],
+          'tipo_evento': reg['tipo_evento'],
+          'latitud': reg['latitud'],
+          'longitud': reg['longitud'],
+          'hora_evento': reg['hora_evento'],
+        };
+
+        await Supabase.instance.client.from('asistencia').upsert(insertData);
+        await DatabaseHelper.instance.marcarAsistenciaSincronizada(reg['id'].toString());
+      } catch (e) {
+        debugPrint('Error subiendo asistencia ${reg['id']}: $e');
+      }
+    }
+  }
+
+  static Future<void> _descargarAsistenciasDelConductor(String rut) async {
+    try {
+      final remotos = await Supabase.instance.client
+          .from('asistencia')
+          .select()
+          .eq('conductor_rut', rut)
+          .order('hora_evento', ascending: false);
+
+      for (final a in remotos) {
+        await DatabaseHelper.instance.upsertAsistenciaDesdeSupabase(Map<String, dynamic>.from(a));
+      }
+    } catch (e) {
+      debugPrint('Aviso al descargar historial de asistencia: $e');
+    }
+  }
+
+  // ================================================================= //
+  // 4. SINCRONIZACIÓN DE INCIDENTES EN RUTA
+  // ================================================================= //
+  static Future<void> _subirIncidentesPendientes() async {
+    final pendientes = await DatabaseHelper.instance.obtenerIncidentesNoSincronizados();
+
+    for (final inc in pendientes) {
+      try {
+        String? urlFoto = inc['url_evidencia_fotografica']?.toString();
+        final localFoto = inc['local_path_evidencia']?.toString();
+        if (localFoto != null && localFoto.isNotEmpty && File(localFoto).existsSync()) {
+          urlFoto = await _intentarSubirFotoStorage(
+                'evidencias_incidentes',
+                localFoto,
+                'incidente_${inc['id']}.jpg',
+              ) ??
+              urlFoto;
+        }
+
+        String? viajeId = inc['viaje_id']?.toString();
+        if (viajeId != null && viajeId.trim().isEmpty) {
+          viajeId = null;
+        }
+
+        // Si el chofer no tenía viaje en curso al reportar, buscamos su último viaje en Supabase
+        // como respaldo por si la columna viaje_id aún tuviera NOT NULL en la BD
+        if (viajeId == null) {
+          final viajeReciente = await Supabase.instance.client
+              .from('viajes')
+              .select('id')
+              .eq('conductor_rut', inc['conductor_rut'])
+              .order('fecha_viaje', ascending: false)
+              .limit(1)
+              .maybeSingle();
+          viajeId = viajeReciente?['id']?.toString();
+        }
+
+        final insertData = <String, dynamic>{
+          'id': inc['id'],
+          'conductor_rut': inc['conductor_rut'],
+          'tipo_incidente': inc['tipo_incidente'], // 'accidente', 'falla_mecanica', 'retraso'
+          'gravedad': inc['gravedad'], // 'leve', 'moderada', 'grave'
+          'descripcion': inc['descripcion'],
+          'latitud': inc['latitud'],
+          'longitud': inc['longitud'],
+          'url_evidencia_fotografica': urlFoto,
+          'reportado_en': inc['reportado_en'],
+        };
+
+        if (viajeId != null && viajeId.isNotEmpty) {
+          insertData['viaje_id'] = viajeId;
+        }
+
+        await Supabase.instance.client.from('incidentes').upsert(insertData);
+        await DatabaseHelper.instance.marcarIncidenteSincronizado(inc['id'].toString(), urlFoto: urlFoto);
+      } catch (e) {
+        debugPrint('Error subiendo incidente ${inc['id']}: $e');
+      }
+    }
+  }
+
+  static Future<void> _descargarIncidentesDelConductor(String rut) async {
+    try {
+      final remotos = await Supabase.instance.client
+          .from('incidentes')
+          .select()
+          .eq('conductor_rut', rut)
+          .order('reportado_en', ascending: false);
+
+      for (final inc in remotos) {
+        await DatabaseHelper.instance.upsertIncidenteDesdeSupabase(Map<String, dynamic>.from(inc));
+      }
+    } catch (e) {
+      debugPrint('Aviso al descargar historial de incidentes: $e');
     }
   }
 }

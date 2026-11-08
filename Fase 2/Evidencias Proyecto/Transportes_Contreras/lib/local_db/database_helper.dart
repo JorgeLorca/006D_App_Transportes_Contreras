@@ -24,7 +24,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 3,
+      version: 5, // Versión 5: agrega tabla incidentes Offline-First
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -106,6 +106,8 @@ class DatabaseHelper {
     ''');
 
     await _crearTablaCombustible(db);
+    await _crearTablaAsistencia(db);
+    await _crearTablaIncidentes(db);
   }
 
   Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
@@ -120,6 +122,12 @@ class DatabaseHelper {
       try {
         await db.execute("ALTER TABLE registros_combustible ADD COLUMN observaciones_admin TEXT");
       } catch (_) {}
+    }
+    if (oldVersion < 4) {
+      await _crearTablaAsistencia(db);
+    }
+    if (oldVersion < 5) {
+      await _crearTablaIncidentes(db);
     }
   }
 
@@ -142,6 +150,41 @@ class DatabaseHelper {
         estado_revision TEXT DEFAULT 'pendiente',
         observaciones_admin TEXT,
         registrado_en TEXT NOT NULL,
+        is_synced INTEGER DEFAULT 1,
+        sync_action TEXT DEFAULT 'NONE'
+      )
+    ''');
+  }
+
+  Future<void> _crearTablaAsistencia(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS asistencia (
+        id TEXT PRIMARY KEY,
+        conductor_rut TEXT NOT NULL,
+        tipo_evento TEXT NOT NULL,
+        latitud REAL NOT NULL,
+        longitud REAL NOT NULL,
+        hora_evento TEXT NOT NULL,
+        is_synced INTEGER DEFAULT 1,
+        sync_action TEXT DEFAULT 'NONE'
+      )
+    ''');
+  }
+
+  Future<void> _crearTablaIncidentes(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS incidentes (
+        id TEXT PRIMARY KEY,
+        viaje_id TEXT,
+        conductor_rut TEXT NOT NULL,
+        tipo_incidente TEXT NOT NULL,
+        gravedad TEXT NOT NULL,
+        descripcion TEXT,
+        latitud REAL NOT NULL,
+        longitud REAL NOT NULL,
+        url_evidencia_fotografica TEXT,
+        local_path_evidencia TEXT,
+        reportado_en TEXT NOT NULL,
         is_synced INTEGER DEFAULT 1,
         sync_action TEXT DEFAULT 'NONE'
       )
@@ -178,7 +221,7 @@ class DatabaseHelper {
   }
 
   // ==========================================
-  // CATÁLOGO DE CAMIONES (FLOTA COMPLETA)
+  // CATÁLOGO DE CAMIONES
   // ==========================================
   Future<void> upsertCamionDesdeSupabase(RegistroMapa cam) async {
     final db = await instance.database;
@@ -207,7 +250,7 @@ class DatabaseHelper {
   }
 
   // ==========================================
-  // MÉTODOS DE VIAJES (OFFLINE + SUPABASE)
+  // MÉTODOS DE VIAJES
   // ==========================================
   Future<void> upsertViajeDesdeSupabase(RegistroMapa v) async {
     final db = await instance.database;
@@ -358,9 +401,8 @@ class DatabaseHelper {
   }
 
   // ==========================================
-  // MÉTODOS DE COMBUSTIBLE (OFFLINE + SUPABASE)
+  // MÉTODOS DE COMBUSTIBLE
   // ==========================================
-
   Future<InfoCamion> obtenerCamionActualConductor(String rut) async {
     final db = await instance.database;
     final res = await db.rawQuery('''
@@ -487,5 +529,187 @@ class DatabaseHelper {
       'is_synced': 1,
       'sync_action': 'NONE',
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  // ==========================================
+  // MÉTODOS DE ASISTENCIA
+  // ==========================================
+  Future<void> insertarAsistenciaOffline(RegistroMapa registro) async {
+    final db = await instance.database;
+    await _crearTablaAsistencia(db);
+
+    final payload = Map<String, dynamic>.from(registro);
+    payload['is_synced'] = 0;
+    payload['sync_action'] = 'INSERT';
+
+    await db.insert(
+      'asistencia',
+      payload,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<ListaRegistros> obtenerHistorialAsistencia(String rut) async {
+    final db = await instance.database;
+    await _crearTablaAsistencia(db);
+
+    final rows = await db.query(
+      'asistencia',
+      where: 'conductor_rut = ?',
+      whereArgs: [rut],
+      orderBy: 'hora_evento DESC',
+    );
+    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  Future<RegistroMapa?> obtenerUltimoEventoAsistencia(String rut) async {
+    final db = await instance.database;
+    await _crearTablaAsistencia(db);
+
+    final rows = await db.query(
+      'asistencia',
+      where: 'conductor_rut = ?',
+      whereArgs: [rut],
+      orderBy: 'hora_evento DESC',
+      limit: 1,
+    );
+    if (rows.isNotEmpty) return Map<String, dynamic>.from(rows.first);
+    return null;
+  }
+
+  Future<ListaRegistros> obtenerAsistenciasNoSincronizadas() async {
+    final db = await instance.database;
+    await _crearTablaAsistencia(db);
+    final rows = await db.query('asistencia', where: 'is_synced = ?', whereArgs: [0]);
+    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  Future<void> marcarAsistenciaSincronizada(String id) async {
+    final db = await instance.database;
+    await db.update(
+      'asistencia',
+      {'is_synced': 1, 'sync_action': 'NONE'},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> upsertAsistenciaDesdeSupabase(RegistroMapa a) async {
+    final db = await instance.database;
+    await _crearTablaAsistencia(db);
+
+    final existente = await db.query('asistencia', where: 'id = ?', whereArgs: [a['id'].toString()]);
+    if (existente.isNotEmpty && existente.first['is_synced'] == 0) {
+      return;
+    }
+
+    await db.insert(
+      'asistencia',
+      {
+        'id': a['id'].toString(),
+        'conductor_rut': a['conductor_rut']?.toString() ?? '',
+        'tipo_evento': a['tipo_evento']?.toString() ?? 'entrada',
+        'latitud': (a['latitud'] is num)
+            ? (a['latitud'] as num).toDouble()
+            : double.tryParse(a['latitud']?.toString() ?? '0') ?? 0.0,
+        'longitud': (a['longitud'] is num)
+            ? (a['longitud'] as num).toDouble()
+            : double.tryParse(a['longitud']?.toString() ?? '0') ?? 0.0,
+        'hora_evento': a['hora_evento']?.toString() ?? DateTime.now().toIso8601String(),
+        'is_synced': 1,
+        'sync_action': 'NONE',
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  // ==========================================
+  // MÉTODOS DE INCIDENTES EN RUTA (OFFLINE + SUPABASE)
+  // ==========================================
+  Future<void> insertarIncidenteOffline(RegistroMapa registro) async {
+    final db = await instance.database;
+    await _crearTablaIncidentes(db);
+
+    final payload = Map<String, dynamic>.from(registro);
+    payload['is_synced'] = 0;
+    payload['sync_action'] = 'INSERT';
+
+    await db.insert(
+      'incidentes',
+      payload,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<ListaRegistros> obtenerHistorialIncidentes(String rut) async {
+    final db = await instance.database;
+    await _crearTablaIncidentes(db);
+
+    final rows = await db.query(
+      'incidentes',
+      where: 'conductor_rut = ?',
+      whereArgs: [rut],
+      orderBy: 'reportado_en DESC',
+    );
+    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  Future<ListaRegistros> obtenerIncidentesNoSincronizados() async {
+    final db = await instance.database;
+    await _crearTablaIncidentes(db);
+    final rows = await db.query('incidentes', where: 'is_synced = ?', whereArgs: [0]);
+    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  Future<void> marcarIncidenteSincronizado(String id, {String? urlFoto}) async {
+    final db = await instance.database;
+    final updateData = <String, dynamic>{
+      'is_synced': 1,
+      'sync_action': 'NONE',
+    };
+    if (urlFoto != null) updateData['url_evidencia_fotografica'] = urlFoto;
+
+    await db.update(
+      'incidentes',
+      updateData,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> upsertIncidenteDesdeSupabase(RegistroMapa inc) async {
+    final db = await instance.database;
+    await _crearTablaIncidentes(db);
+
+    final existente = await db.query('incidentes', where: 'id = ?', whereArgs: [inc['id'].toString()]);
+    if (existente.isNotEmpty && existente.first['is_synced'] == 0) {
+      return;
+    }
+
+    final localFoto = existente.isNotEmpty ? existente.first['local_path_evidencia']?.toString() : null;
+
+    await db.insert(
+      'incidentes',
+      {
+        'id': inc['id'].toString(),
+        'viaje_id': inc['viaje_id']?.toString(),
+        'conductor_rut': inc['conductor_rut']?.toString() ?? '',
+        'tipo_incidente': inc['tipo_incidente']?.toString() ?? 'retraso',
+        'gravedad': inc['gravedad']?.toString() ?? 'leve',
+        'descripcion': inc['descripcion']?.toString() ?? '',
+        'latitud': (inc['latitud'] is num)
+            ? (inc['latitud'] as num).toDouble()
+            : double.tryParse(inc['latitud']?.toString() ?? '0') ?? 0.0,
+        'longitud': (inc['longitud'] is num)
+            ? (inc['longitud'] as num).toDouble()
+            : double.tryParse(inc['longitud']?.toString() ?? '0') ?? 0.0,
+        'url_evidencia_fotografica': inc['url_evidencia_fotografica']?.toString(),
+        'local_path_evidencia': localFoto,
+        'reportado_en': inc['reportado_en']?.toString() ?? DateTime.now().toIso8601String(),
+        'is_synced': 1,
+        'sync_action': 'NONE',
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 }

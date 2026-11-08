@@ -3,8 +3,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../local_db/database_helper.dart';
 import '../local_db/sync_helper.dart';
+import 'login_screen.dart';
 import 'mobile/mis_viajes_screen.dart';
 import 'mobile/combustible_screen.dart';
+import 'mobile/asistencia_screen.dart';
+import 'mobile/perfil_conductor_screen.dart';
+import 'mobile/incidentes_screen.dart';
+import '../utils/notificaciones_accidentes_service.dart';
 
 class ConductorHome extends StatefulWidget {
   const ConductorHome({super.key});
@@ -18,8 +23,10 @@ class _ConductorHomeState extends State<ConductorHome> {
   bool _isLoading = true;
   bool _estaOnline = true;
   String _nombreConductor = 'Conductor';
+  String _rutConductor = '--';
+  bool _turnoEnCurso = false;
 
-  Map<String, dynamic>? _viajeActivo;
+  RegistroMapa? _viajeActivo;
   List<dynamic> _viajesPendientes = [];
   int _totalViajesMes = 0;
 
@@ -34,14 +41,12 @@ class _ConductorHomeState extends State<ConductorHome> {
       String? rut;
       String? nombre;
 
-      // 1. Primero leemos la sesión local en SQLite (funciona sin internet)
       final sesionLocal = await DatabaseHelper.instance.obtenerSesionConductor();
       if (sesionLocal != null) {
         rut = sesionLocal['rut']?.toString();
         nombre = sesionLocal['nombre_completo']?.toString();
       }
 
-      // 2. Si no estaba en SQLite pero sí hay sesión en Supabase, la rescatamos y guardamos
       if (rut == null) {
         final user = Supabase.instance.client.auth.currentUser;
         if (user != null) {
@@ -61,18 +66,22 @@ class _ConductorHomeState extends State<ConductorHome> {
         return;
       }
 
+      _rutConductor = rut;
       _nombreConductor = nombre ?? 'Conductor';
 
-      // 3. LECTURA RÁPIDA DESDE SQLITE (Muestra la pantalla de inmediato sin esperar red)
+      // Activa la escucha en tiempo real de Accidentes en Ruta reportados por otros conductores
+      NotificacionesAccidentesService.inicializarYEscuchar(
+        rutConductorActual: rut,
+        context: context,
+      );
+
       await _leerDesdeSQLite(rut);
 
-      // 4. SINCRONIZACIÓN EN SEGUNDO PLANO CON SUPABASE
       final sincronizado = await SyncHelper.sincronizarTodo(rut);
       if (mounted) {
         setState(() => _estaOnline = sincronizado);
       }
 
-      // 5. Si sincronizó con éxito, refrescamos la vista con los datos recién descargados
       if (sincronizado) {
         await _leerDesdeSQLite(rut);
       }
@@ -86,14 +95,72 @@ class _ConductorHomeState extends State<ConductorHome> {
     final activosLocal = await DatabaseHelper.instance.obtenerViajesPorEstado(rut, 'en_curso');
     final pendientesLocal = await DatabaseHelper.instance.obtenerViajesPorEstado(rut, 'pendiente');
     final completadosLocal = await DatabaseHelper.instance.obtenerViajesPorEstado(rut, 'completado');
+    final ultimoEventoAsistencia = await DatabaseHelper.instance.obtenerUltimoEventoAsistencia(rut);
+
+    final bool enTurno = ultimoEventoAsistencia != null &&
+        (ultimoEventoAsistencia['tipo_evento']?.toString().toLowerCase() == 'entrada');
 
     if (mounted) {
       setState(() {
         _viajeActivo = activosLocal.isNotEmpty ? activosLocal.first : null;
         _viajesPendientes = pendientesLocal.take(3).toList();
         _totalViajesMes = completadosLocal.length;
+        _turnoEnCurso = enTurno;
         _isLoading = false;
       });
+    }
+  }
+
+  void _abrirAsistencia() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const AsistenciaScreen()),
+    ).then((_) {
+      setState(() => _isLoading = true);
+      _cargarDatosDashboard();
+    });
+  }
+
+  void _abrirPerfil() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const PerfilConductorScreen()),
+    ).then((_) {
+      setState(() => _isLoading = true);
+      _cargarDatosDashboard();
+    });
+  }
+
+  Future<void> _cerrarSesionDesdeMenu() async {
+    final confirmar = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cerrar Sesión'),
+        content: const Text('¿Desea cerrar su sesión actual?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Salir', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
+
+    await DatabaseHelper.instance.cerrarSesionLocal();
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } catch (_) {}
+
+    if (mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
     }
   }
 
@@ -107,7 +174,6 @@ class _ConductorHomeState extends State<ConductorHome> {
         _cargarDatosDashboard();
       });
     } else if (index == 3) {
-      // Abre el Historial de Combustible al tocar el ícono de la barra inferior
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -117,6 +183,8 @@ class _ConductorHomeState extends State<ConductorHome> {
         setState(() => _isLoading = true);
         _cargarDatosDashboard();
       });
+    } else if (index == 4) {
+      _abrirPerfil();
     } else {
       setState(() {
         _selectedIndex = index;
@@ -166,15 +234,17 @@ class _ConductorHomeState extends State<ConductorHome> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
+      drawer: _buildMenuLateral(),
       appBar: AppBar(
         backgroundColor: const Color(0xFF0F172A),
         elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
         title: const Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.local_shipping, color: Colors.white, size: 24),
+            Icon(Icons.local_shipping, color: Colors.white, size: 22),
             SizedBox(width: 8),
-            Text('TRANSPORTES CONTRERAS', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+            Text('TRANSPORTES CONTRERAS', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
           ],
         ),
         actions: [
@@ -240,7 +310,25 @@ class _ConductorHomeState extends State<ConductorHome> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildActionCard(Icons.access_time, 'Iniciar\nTurno', Colors.blue, onTap: () {}),
+                const Text('VIAJE ACTIVO', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey)),
+                Text('${_viajesPendientes.length} pendientes', style: const TextStyle(fontSize: 14, color: Color(0xFFE67E22), fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _buildViajeActivoCard(),
+            const SizedBox(height: 24),
+
+            const Text('ACCIONES RÁPIDAS', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey)),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildActionCard(
+                  _turnoEnCurso ? Icons.logout_rounded : Icons.access_time,
+                  _turnoEnCurso ? 'Finalizar\nTurno' : 'Iniciar\nTurno',
+                  _turnoEnCurso ? Colors.green : Colors.blue,
+                  onTap: _abrirAsistencia,
+                ),
                 _buildActionCard(
                   Icons.local_gas_station,
                   'Cargar\nCombustible',
@@ -257,7 +345,24 @@ class _ConductorHomeState extends State<ConductorHome> {
                     });
                   },
                 ),
-                _buildActionCard(Icons.warning_amber_rounded, 'Reportar\nIncidente', Colors.red, onTap: () {}),
+                _buildActionCard(
+                  Icons.warning_amber_rounded,
+                  'Reportar\nIncidente',
+                  Colors.red,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => IncidentesScreen(
+                          viajeIdInicial: _viajeActivo?['id']?.toString(),
+                        ),
+                      ),
+                    ).then((_) {
+                      setState(() => _isLoading = true);
+                      _cargarDatosDashboard();
+                    });
+                  },
+                ),
               ],
             ),
             const SizedBox(height: 24),
@@ -293,6 +398,124 @@ class _ConductorHomeState extends State<ConductorHome> {
           BottomNavigationBarItem(icon: Icon(Icons.insert_drive_file), label: 'Planilla'),
           BottomNavigationBarItem(icon: Icon(Icons.local_gas_station), label: 'Combustible'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Perfil'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMenuLateral() {
+    return Drawer(
+      backgroundColor: Colors.white,
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(20, 52, 20, 24),
+            decoration: const BoxDecoration(color: Color(0xFF0F172A)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: const Color(0xFFE67E22),
+                  child: Text(
+                    _nombreConductor.isNotEmpty ? _nombreConductor[0].toUpperCase() : 'C',
+                    style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _nombreConductor,
+                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'RUT: $_rutConductor',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _turnoEnCurso ? Colors.green.withOpacity(0.25) : Colors.white12,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    _turnoEnCurso ? '● Turno Activo (En Jornada)' : '○ Fuera de Turno',
+                    style: TextStyle(
+                      color: _turnoEnCurso ? Colors.greenAccent : Colors.white70,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.home_outlined, color: Color(0xFF0F172A)),
+                  title: const Text('Panel de Inicio', style: TextStyle(fontWeight: FontWeight.w600)),
+                  onTap: () => Navigator.pop(context),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.where_to_vote_outlined, color: Color(0xFFE67E22)),
+                  title: const Text('Asistencia (Entrada / Salida)', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(
+                    _turnoEnCurso ? 'Jornada en curso • Marcar salida' : 'Marcar entrada (Radio 500m)',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _abrirAsistencia();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.map_outlined, color: Color(0xFF0F172A)),
+                  title: const Text('Mis Viajes', style: TextStyle(fontWeight: FontWeight.w600)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _onItemTapped(1);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.local_gas_station_outlined, color: Color(0xFF0F172A)),
+                  title: const Text('Combustible (AIRE)', style: TextStyle(fontWeight: FontWeight.w600)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _onItemTapped(3);
+                  },
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.person_outline, color: Color(0xFF0F172A)),
+                  title: const Text('Mi Perfil', style: TextStyle(fontWeight: FontWeight.w600)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _abrirPerfil();
+                  },
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          SafeArea(
+            top: false,
+            child: ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: const Text(
+                'Cerrar Sesión',
+                style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                _cerrarSesionDesdeMenu();
+              },
+            ),
+          ),
         ],
       ),
     );
