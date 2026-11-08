@@ -14,8 +14,8 @@ class AsistenciaScreen extends StatefulWidget {
 
 class _AsistenciaScreenState extends State<AsistenciaScreen> {
   // Coordenadas exactas de Transportes Contreras y radio máximo de 500 metros
-  static const double _baseLatitud = -33.437514;
-  static const double _baseLongitud = -70.782836;
+  static const double _baseLatitud = -33.39733357230261;
+  static const double _baseLongitud = -70.8543756733004;
   static const double _radioMaximoMetros = 500.0;
 
   bool _isLoading = true;
