@@ -10,6 +10,7 @@ import 'mobile/asistencia_screen.dart';
 import 'mobile/perfil_conductor_screen.dart';
 import 'mobile/incidentes_screen.dart';
 import '../utils/notificaciones_accidentes_service.dart';
+import 'mobile/planilla_screen.dart';
 
 class ConductorHome extends StatefulWidget {
   const ConductorHome({super.key});
@@ -169,6 +170,14 @@ class _ConductorHomeState extends State<ConductorHome> {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => const MisViajesScreen()),
+      ).then((_) {
+        setState(() => _isLoading = true);
+        _cargarDatosDashboard();
+      });
+    } else if (index == 2) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const PlanillaScreen()),
       ).then((_) {
         setState(() => _isLoading = true);
         _cargarDatosDashboard();
@@ -479,6 +488,14 @@ class _ConductorHomeState extends State<ConductorHome> {
                   onTap: () {
                     Navigator.pop(context);
                     _onItemTapped(1);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.insert_drive_file_outlined, color: Color(0xFF0F172A)),
+                  title: const Text('Mi Planilla (Ciclo 21 al 20)', style: TextStyle(fontWeight: FontWeight.w600)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _onItemTapped(2);
                   },
                 ),
                 ListTile(
