@@ -1,10 +1,13 @@
-import 'dart:html' as html;
-import 'dart:ui_web' as ui_web;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import '../../theme/app_colors.dart';
 import '../../widgets/admin_shell.dart';
 import 'asignar_viaje_screen.dart';
+import 'web_map_helper.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -16,26 +19,19 @@ class AdminHomeScreen extends StatefulWidget {
 class _AdminHomeScreenState extends State<AdminHomeScreen> {
   bool _isLoading = true;
 
-  // Contadores reales desde Supabase
   int _conductoresCount = 0;
   int _viajesActivosCount = 0;
   int _cargasPendientesCount = 0;
   int _alertasCount = 0;
 
-  // Último incidente reportado
   Map<String, dynamic>? _ultimoIncidente;
-
-  // Lista de viajes para la tabla inferior
   List<dynamic> _viajesRecientes = [];
 
-  // Colores corporativos de incidentes sincronizados con la app móvil
   final Color _redAccidentColor = const Color(0xFFDC2626);
   final Color _yellowMechColor = const Color(0xFFD97706);
   final Color _orangeDelayColor = const Color(0xFFEA580C);
 
-  // Control de expansión de descripción para el último incidente en el dashboard
   bool _descripcionExpandida = false;
-
   bool _recargandoIncidentes = false;
 
   @override
@@ -48,30 +44,25 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     try {
       final supabase = Supabase.instance.client;
 
-      // 1. Contar total de conductores
       final int conductoresCount = await supabase
           .from('conductores')
           .count(CountOption.exact);
 
-      // 2. Contar viajes en curso
       final int activosCount = await supabase
           .from('viajes')
           .count(CountOption.exact)
           .eq('estado', 'en_curso');
 
-      // 3. Contar viajes pendientes
       final int pendientesCount = await supabase
           .from('viajes')
           .count(CountOption.exact)
           .eq('estado', 'pendiente');
 
-      // 4. Contar total de incidentes reportados
       final int totalIncidentes = await supabase
           .from('incidentes')
           .count(CountOption.exact)
           .catchError((_) => 0);
 
-      // 5. Obtener el último incidente reportado trayendo el nombre desde la tabla conductores
       final List<dynamic> incidentesData = await supabase
           .from('incidentes')
           .select('id, conductor_rut, tipo_incidente, gravedad, descripcion, latitud, longitud, reportado_en, conductores(nombre_completo, telefono)')
@@ -84,7 +75,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         ultimoIncidente = incidentesData.first as Map<String, dynamic>;
       }
 
-      // 6. Obtener últimos 5 viajes para la tabla
       final viajesData = await supabase
           .from('viajes')
           .select('id, estado, fecha_viaje, conductor_rut, clientes(nombre_empresa)')
@@ -120,7 +110,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     ];
   }
 
-  /// Formatea UUIDs largos a un código legible y elegante (ej. #D458F846)
   String _formatearId(String rawId) {
     if (rawId.length > 8) {
       return '#${rawId.substring(0, 8).toUpperCase()}';
@@ -128,7 +117,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     return rawId.startsWith('#') ? rawId : '#$rawId';
   }
 
-  /// Formatea tiempo transcurrido (hace X min, hace X h, etc.)
   String _formatearTiempoRelativo(String? timestampStr) {
     if (timestampStr == null || timestampStr.isEmpty) return 'reciente';
     final dt = DateTime.tryParse(timestampStr);
@@ -143,7 +131,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     return '${dt.day}/${dt.month}/${dt.year}';
   }
 
-  /// Gestiona el contacto con el conductor según si el dispositivo es un teléfono real o un PC
+  Future<void> _abrirUrlExterna(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   Future<void> _contactarConductor(String rutConductor, [String? nombreInicial]) async {
     String telefono = '';
     String nombre = nombreInicial ?? 'Conductor';
@@ -179,103 +173,99 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     final String soloNumeros = telefono.replaceAll(RegExp(r'[^0-9+]'), '');
     final String numeroLimpio = soloNumeros.startsWith('+') ? soloNumeros : '+56$soloNumeros';
 
-    // Detección de dispositivo físico real mediante User-Agent
-    final String userAgent = html.window.navigator.userAgent.toLowerCase();
-    final bool esTelefonoReal = userAgent.contains('android') ||
-        userAgent.contains('iphone') ||
-        userAgent.contains('ipad') ||
-        userAgent.contains('mobile');
+    // En app móvil nativa abre directamente el marcador del teléfono
+    if (!kIsWeb) {
+      final uriTel = Uri.parse('tel:$numeroLimpio');
+      if (await canLaunchUrl(uriTel)) {
+        await launchUrl(uriTel);
+      }
+      return;
+    }
 
-    if (esTelefonoReal) {
-      // Abre el marcador nativo del teléfono sin realizar la llamada automáticamente
-      html.window.location.href = 'tel:$numeroLimpio';
-    } else {
-      // En PC: Muestra el modal con el nombre y RUT, número para copiar y opción de WhatsApp Web
-      if (!mounted) return;
-      showDialog(
-        context: context,
-        builder: (ctx) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: Row(
-              children: const [
-                Icon(Icons.phone_in_talk, color: AppColors.primary, size: 22),
-                SizedBox(width: 10),
-                Text('Contacto del Conductor', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(nombre, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                Text('RUT: $rutConductor', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                const SizedBox(height: 16),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.phone, size: 18, color: Colors.green),
-                          const SizedBox(width: 8),
-                          SelectableText(
-                            telefono,
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                          ),
-                        ],
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.copy, size: 18, color: AppColors.textSecondary),
-                        tooltip: 'Copiar número',
-                        onPressed: () {
-                          html.window.navigator.clipboard?.writeText(telefono);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Número copiado al portapapeles'), duration: Duration(seconds: 2)),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
+    // En Web: Muestra el modal con el número para copiar y opción de WhatsApp Web
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: const [
+              Icon(Icons.phone_in_talk, color: AppColors.primary, size: 22),
+              SizedBox(width: 10),
+              Text('Contacto del Conductor', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(nombre, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              Text('RUT: $rutConductor', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.border),
                 ),
-                const SizedBox(height: 14),
-                const Text(
-                  'Desde PC no es posible realizar llamadas directas. Puede copiar el número o abrir una conversación directa en WhatsApp Web.',
-                  style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.phone, size: 18, color: Colors.green),
+                        const SizedBox(width: 8),
+                        SelectableText(
+                          telefono,
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy, size: 18, color: AppColors.textSecondary),
+                      tooltip: 'Copiar número',
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: telefono));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Número copiado al portapapeles'), duration: Duration(seconds: 2)),
+                        );
+                      },
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            actions: [
-              OutlinedButton.icon(
-                onPressed: () {
-                  final wsUrl =
-                      'https://web.whatsapp.com/send?phone=${numeroLimpio.replaceAll('+', '')}&text=${Uri.encodeComponent('Hola $nombre, nos comunicamos desde la administración de Transportes Contreras respecto a su reporte en ruta.')}';
-                  html.window.open(wsUrl, '_blank');
-                  Navigator.of(ctx).pop();
-                },
-                icon: const Icon(Icons.chat, size: 16, color: Colors.green),
-                label: const Text('Abrir WhatsApp Web', style: TextStyle(color: Colors.green, fontSize: 12)),
               ),
-              ElevatedButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-                child: const Text('Cerrar', style: TextStyle(color: Colors.white, fontSize: 12)),
+              const SizedBox(height: 14),
+              const Text(
+                'Desde PC no es posible realizar llamadas directas. Puede copiar el número o abrir una conversación directa en WhatsApp Web.',
+                style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
               ),
             ],
-          );
-        },
-      );
-    }
+          ),
+          actions: [
+            OutlinedButton.icon(
+              onPressed: () {
+                final wsUrl =
+                    'https://web.whatsapp.com/send?phone=${numeroLimpio.replaceAll('+', '')}&text=${Uri.encodeComponent('Hola $nombre, nos comunicamos desde la administración de Transportes Contreras respecto a su reporte en ruta.')}';
+                _abrirUrlExterna(wsUrl);
+                Navigator.of(ctx).pop();
+              },
+              icon: const Icon(Icons.chat, size: 16, color: Colors.green),
+              label: const Text('Abrir WhatsApp Web', style: TextStyle(color: Colors.green, fontSize: 12)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+              child: const Text('Cerrar', style: TextStyle(color: Colors.white, fontSize: 12)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
-  /// Abre un modal independiente sobre cualquier vista para mostrar el mapa interactivo
   void _abrirModalMapa({
     required double lat,
     required double lng,
@@ -286,23 +276,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }) {
     final String viewType = 'map-view-${lat.toStringAsFixed(4)}-${lng.toStringAsFixed(4)}-${DateTime.now().millisecondsSinceEpoch}';
 
-    ui_web.platformViewRegistry.registerViewFactory(
-      viewType,
-      (int viewId) {
-        final iframe = html.IFrameElement()
-          ..style.width = '100%'
-          ..style.height = '100%'
-          ..style.position = 'absolute'
-          ..style.top = '0'
-          ..style.left = '0'
-          ..style.right = '0'
-          ..style.bottom = '0'
-          ..style.border = 'none'
-          ..style.display = 'block'
-          ..src = 'https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.015}%2C${lat - 0.010}%2C${lng + 0.015}%2C${lat + 0.010}&layer=mapnik&marker=$lat%2C$lng';
-        return iframe;
-      },
-    );
+    if (kIsWeb) {
+      registrarIFrameMapa(viewType, lat, lng);
+    }
 
     showDialog(
       context: context,
@@ -326,7 +302,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Cabecera del modal
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -378,7 +353,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // Contenedor del Mapa Interactivo
                 Expanded(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
@@ -387,20 +361,39 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                         border: Border.all(color: AppColors.border),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: HtmlElementView(viewType: viewType),
-                          ),
-                        ],
-                      ),
+                      child: kIsWeb
+                          ? Stack(
+                              children: [
+                                Positioned.fill(
+                                  child: construirVistaMapaWeb(viewType),
+                                ),
+                              ],
+                            )
+                          : Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.map_outlined, size: 48, color: colorAlerta),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Ubicación: ${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  ElevatedButton.icon(
+                                    onPressed: () => _abrirUrlExterna('https://www.google.com/maps/search/?api=1&query=$lat,$lng'),
+                                    icon: const Icon(Icons.open_in_new, size: 16),
+                                    label: const Text('Abrir en Google Maps'),
+                                  ),
+                                ],
+                              ),
+                            ),
                     ),
                   ),
                 ),
 
                 const SizedBox(height: 14),
 
-                // Pie Responsivo
                 LayoutBuilder(
                   builder: (context, constraints) {
                     final bool estrecho = constraints.maxWidth < 480;
@@ -432,7 +425,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                             height: 38,
                             child: OutlinedButton.icon(
                               onPressed: () {
-                                html.window.open('https://www.google.com/maps/search/?api=1&query=$lat,$lng', '_blank');
+                                _abrirUrlExterna('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
                               },
                               icon: const Icon(Icons.open_in_new, size: 14),
                               label: const Text('Abrir en Google Maps', style: TextStyle(fontSize: 12)),
@@ -465,7 +458,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                         ),
                         OutlinedButton.icon(
                           onPressed: () {
-                            html.window.open('https://www.google.com/maps/search/?api=1&query=$lat,$lng', '_blank');
+                            _abrirUrlExterna('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
                           },
                           icon: const Icon(Icons.open_in_new, size: 14),
                           label: const Text('Abrir en Google Maps', style: TextStyle(fontSize: 12)),
@@ -531,12 +524,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 children: [
                   _buildHeroBanner(isSmallMobile),
                   const SizedBox(height: 24),
-
-                  // 1. KPIs Superiores Responsivos
                   _buildKpisSection(isMobile),
                   const SizedBox(height: 24),
-
-                  // 2. Resumen Diario y Alertas Críticas
                   if (!isMobile)
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -551,16 +540,11 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                     const SizedBox(height: 24),
                     _buildAlertasCriticas(),
                   ],
-
                   const SizedBox(height: 24),
-
-                  // 3. Acciones Rápidas Responsivas
                   const Text('Acciones Rápidas', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
                   _buildAccionesRapidas(isSmallMobile),
                   const SizedBox(height: 32),
-
-                  // 4. Tabla de Actividad Reciente
                   const Text('Actividad Reciente de Flota', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
                   _buildTablaActividadOriginal(isSmallMobile),
@@ -783,7 +767,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   Widget _buildAlertasCriticas() {
-    // 1. Caso: No hay incidentes en la base de datos
     if (_ultimoIncidente == null) {
       return Container(
         padding: const EdgeInsets.all(20),
@@ -844,7 +827,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       );
     }
 
-    // 2. Mapeo de datos del último incidente
     final String tipoRaw = (_ultimoIncidente!['tipo_incidente'] ?? 'retraso').toString().toLowerCase();
     final String gravedadRaw = (_ultimoIncidente!['gravedad'] ?? 'leve').toString().toLowerCase();
     final String conductorRut = (_ultimoIncidente!['conductor_rut'] ?? '').toString();
@@ -874,7 +856,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
     final bool esTextoLargo = descripcion.split('\n').length > 5 || descripcion.length > 200;
 
-    // 3. Render con la tarjeta de alerta coloreada
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -973,14 +954,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
                 ),
                 const SizedBox(height: 4),
-
                 Text(
                   descripcion,
                   maxLines: _descripcionExpandida ? null : 5,
                   overflow: _descripcionExpandida ? TextOverflow.visible : TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                 ),
-
                 if (esTextoLargo) ...[
                   const SizedBox(height: 4),
                   InkWell(
@@ -1014,7 +993,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                     ),
                   ),
                 ],
-
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 8,
@@ -1022,7 +1000,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                     TextButton.icon(
                       onPressed: () => _contactarConductor(conductorRut, conductorNombre),
                       icon: const Icon(Icons.phone, size: 14),
-                      label: const Text('Contactar Conductor', style: TextStyle(fontSize: 12)),
+                      label: const Text('Contactar Driver', style: TextStyle(fontSize: 12)),
                     ),
                     TextButton.icon(
                       onPressed: () {
@@ -1122,7 +1100,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  // Tabla con separación definida y sin colisión entre ID y Chofer
   Widget _buildTablaActividadOriginal(bool isSmallMobile) {
     final filas = _filasAMostrar;
 
@@ -1168,7 +1145,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  // --- MÓVIL ---
   Widget _buildEncabezadoActividadMovil() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -1275,7 +1251,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  // --- PC ---
   Widget _buildEncabezadoActividadPC() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
@@ -1382,7 +1357,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  /// Abre el diálogo modal con el listado completo de alertas
   void _abrirModalHistorialAlertas() {
     showDialog(
       context: context,
@@ -1400,7 +1374,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Cabecera del Modal con botón de cierre (X)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -1409,7 +1382,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                         Icon(Icons.history_rounded, color: AppColors.primary, size: 22),
                         SizedBox(width: 10),
                         Text(
-                          'Historial de Incidentes',
+                          'Historial de Alertas e Incidentes',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -1433,8 +1406,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 const SizedBox(height: 16),
                 const Divider(height: 1, color: AppColors.border),
                 const SizedBox(height: 16),
-
-                // Lista de incidentes desde Supabase trayendo la relación con conductores
                 Expanded(
                   child: FutureBuilder<List<dynamic>>(
                     future: Supabase.instance.client
@@ -1487,7 +1458,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  /// Construye la tarjeta individual respetando los colores y estructura visual
   Widget _buildTarjetaIncidente(Map<String, dynamic> item) {
     final String tipoRaw = (item['tipo_incidente'] ?? 'retraso').toString().toLowerCase();
     final String gravedadRaw = (item['gravedad'] ?? 'leve').toString().toLowerCase();
@@ -1591,7 +1561,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               TextButton.icon(
                 onPressed: () => _contactarConductor(conductorRut, conductorNombre),
                 icon: const Icon(Icons.phone, size: 14),
-                label: const Text('Contactar Conductor', style: TextStyle(fontSize: 12)),
+                label: const Text('Contactar Driver', style: TextStyle(fontSize: 12)),
               ),
               TextButton.icon(
                 onPressed: () {
