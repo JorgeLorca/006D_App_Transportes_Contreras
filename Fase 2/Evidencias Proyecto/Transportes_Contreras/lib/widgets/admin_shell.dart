@@ -8,6 +8,8 @@ import '../screens/web/admin_home_screen.dart';
 import '../screens/web/lista_consignatarios_screen.dart';
 import '../screens/web/asignar_viaje_screen.dart';
 import '../screens/web/lista_registros_combustible_screen.dart';
+import '../screens/web/lista_rendiciones_screen.dart';
+import '../screens/web/monitoreo_asistencia_screen.dart';
 
 class AdminShell extends StatefulWidget {
   const AdminShell({
@@ -89,7 +91,7 @@ class _AdminShellState extends State<AdminShell> {
       return;
     }
 
-    // 15 = Gestión Administrativa > Registros de Combustible
+    // 15 = Rendiciones > Registros de Combustible
     if (index == 15) {
       if (_currentIndex == 15) return;
       Navigator.of(context).pushReplacement(
@@ -102,7 +104,33 @@ class _AdminShellState extends State<AdminShell> {
       return;
     }
 
-    if ((index > 0 && index < 10) || index > 15) {
+    // 16 = Gestión Administrativa > Monitoreo de Asistencia
+    if (index == 16) {
+      if (_currentIndex == 16) return;
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) => const MonitoreoAsistenciaScreen(),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+        ),
+      );
+      return;
+    }
+
+    // 17 = Rendiciones > Planillas de Conductores
+    if (index == 17) {
+      if (_currentIndex == 17) return;
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) => const ListaRendicionesScreen(),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+        ),
+      );
+      return;
+    }
+
+    if ((index > 0 && index < 10) || index > 17) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Módulo $index en construcción.')),
       );

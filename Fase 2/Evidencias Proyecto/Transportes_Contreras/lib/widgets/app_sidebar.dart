@@ -42,6 +42,7 @@ class AppSidebar extends StatefulWidget {
 class _AppSidebarState extends State<AppSidebar> {
   bool _gestionExpandida = true;
   bool _cargasExpandida = true;
+  bool _rendicionesExpandida = true;
 
   Future<void> _confirmarCerrarSesion(BuildContext context) async {
     final bool? confirmar = await showDialog<bool>(
@@ -219,6 +220,47 @@ class _AppSidebarState extends State<AppSidebar> {
                             onTap: () => widget.onItemSelected?.call(13),
                           ),
                           _buildSubmenuItem(
+                            label: 'Monitoreo de Asistencia',
+                            icon: Icons.fact_check_outlined,
+                            isSelected: widget.selectedIndex == 16,
+                            onTap: () => widget.onItemSelected?.call(16),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Grupo colapsable: Rendiciones (todo lo relacionado con dinero)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                    child: Theme(
+                      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                      child: ExpansionTile(
+                        initiallyExpanded: _rendicionesExpandida,
+                        onExpansionChanged: (exp) => setState(() => _rendicionesExpandida = exp),
+                        tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+                        leading: Icon(kAdminMenuItems[2].icon, size: 19, color: AppSidebar.inactiveText),
+                        title: Text(
+                          kAdminMenuItems[2].label,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                        trailing: Icon(
+                          _rendicionesExpandida ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                          color: AppSidebar.inactiveText,
+                          size: 18,
+                        ),
+                        children: [
+                          _buildSubmenuItem(
+                            label: 'Planillas de Conductores',
+                            icon: Icons.receipt_long_outlined,
+                            isSelected: widget.selectedIndex == 17,
+                            onTap: () => widget.onItemSelected?.call(17),
+                          ),
+                          _buildSubmenuItem(
                             label: 'Registros de Combustible',
                             icon: Icons.local_gas_station_outlined,
                             isSelected: widget.selectedIndex == 15,
@@ -229,11 +271,6 @@ class _AppSidebarState extends State<AppSidebar> {
                     ),
                   ),
 
-                  _SidebarButton(
-                    item: kAdminMenuItems[2],
-                    isSelected: widget.selectedIndex == 2,
-                    onTap: () => widget.onItemSelected?.call(2),
-                  ),
                   _SidebarButton(
                     item: kAdminMenuItems[3],
                     isSelected: widget.selectedIndex == 3,

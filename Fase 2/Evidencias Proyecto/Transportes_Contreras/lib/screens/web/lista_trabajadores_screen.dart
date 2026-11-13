@@ -190,6 +190,38 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
           .eq('rut', trabajador['rut'])
           .select();
 
+      // Si la BD no borró ninguna fila (normalmente por RLS), no lo sacamos de la lista.
+      if (resultado.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'No se eliminó: la base de datos no borró ninguna fila (revisa la política RLS de DELETE en "conductores").'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Elimina también el usuario de acceso en Supabase Auth.
+      String? avisoAuth;
+      final authId = (trabajador['auth_id'] ?? '').toString();
+      if (authId.isNotEmpty) {
+        try {
+          await Supabase.instance.client.functions.invoke(
+            'eliminar_conductor',
+            body: {'auth_id': authId},
+          );
+        } on FunctionException catch (e) {
+          debugPrint('eliminar_conductor: status=${e.status} details=${e.details}');
+          avisoAuth = 'Se eliminó el trabajador, pero no su usuario de acceso: ${e.details ?? e.reasonPhrase}';
+        } catch (e) {
+          debugPrint('eliminar_conductor error: $e');
+          avisoAuth = 'Se eliminó el trabajador, pero no su usuario de acceso: $e';
+        }
+      }
+
       if (mounted) {
         setState(() {
           _datosOriginales.removeWhere((t) => t['rut'] == trabajador['rut']);
@@ -201,10 +233,8 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(resultado.isNotEmpty
-                ? 'Trabajador ${trabajador['nombre']} eliminado de Supabase.'
-                : 'Trabajador removido de la vista.'),
-            backgroundColor: AppColors.textPrimary,
+            content: Text(avisoAuth ?? 'Trabajador ${trabajador['nombre']} eliminado correctamente.'),
+            backgroundColor: avisoAuth == null ? AppColors.textPrimary : Colors.orange.shade800,
           ),
         );
       }

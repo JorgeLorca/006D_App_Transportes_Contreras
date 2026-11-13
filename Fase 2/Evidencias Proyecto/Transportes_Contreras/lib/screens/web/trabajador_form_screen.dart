@@ -195,8 +195,14 @@ class _TrabajadorFormScreenState extends State<TrabajadorFormScreen> {
         },
       );
 
-      final responseData = authResponse.data as Map<String, dynamic>;
-      final String? authId = responseData['auth_id'];
+      final responseData = authResponse.data;
+      final String? authId =
+          responseData is Map ? responseData['auth_id'] as String? : null;
+      if (authId == null) {
+        debugPrint('crear_conductor respondió sin auth_id: $responseData');
+        throw RepositoryException(
+            'La función crear_conductor no devolvió el auth_id. Respuesta: $responseData');
+      }
 
       final trabajador = Trabajador(
         authId: authId,
@@ -207,24 +213,45 @@ class _TrabajadorFormScreenState extends State<TrabajadorFormScreen> {
         telefono: '+56 ${_telefonoCtrl.text.trim()}',
       );
 
-      await _repo.crear(trabajador, carnet: _carnetFile, licencia: _licenciaFile);
+      try {
+        await _repo.crear(trabajador, carnet: _carnetFile, licencia: _licenciaFile);
+      } catch (_) {
+        // Si falla el guardado, deshacemos el usuario de Auth para no dejarlo huérfano.
+        await _revertirUsuarioAuth(authId);
+        rethrow;
+      }
 
       if (!mounted) return;
       widget.onGuardar?.call(trabajador);
       _mostrarMensaje('Trabajador "${trabajador.nombreCompleto}" creado correctamente', AppColors.success);
       _limpiarFormulario();
     } on FunctionException catch (e) {
+      debugPrint('FunctionException: status=${e.status} details=${e.details} reason=${e.reasonPhrase}');
       if (!mounted) return;
-      _mostrarMensaje('Error al crear credenciales de Auth: ${e.reasonPhrase}', Colors.red.shade700);
+      _mostrarMensaje(
+          'Error al crear credenciales de Auth (${e.status}): ${e.details ?? e.reasonPhrase}',
+          Colors.red.shade700);
     } on RepositoryException catch (e) {
+      debugPrint('RepositoryException: ${e.mensaje}');
       if (!mounted) return;
       _mostrarMensaje(e.mensaje, Colors.red.shade700);
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('Error guardando trabajador: $e\n$st');
       if (!mounted) return;
-      _mostrarMensaje('No se pudo guardar el trabajador. Revisa tu conexión e inténtalo de nuevo.',
-          Colors.red.shade700);
+      _mostrarMensaje('No se pudo guardar el trabajador: $e', Colors.red.shade700);
     } finally {
       if (mounted) setState(() => _guardando = false);
+    }
+  }
+
+  Future<void> _revertirUsuarioAuth(String authId) async {
+    try {
+      await Supabase.instance.client.functions.invoke(
+        'eliminar_conductor',
+        body: {'auth_id': authId},
+      );
+    } catch (e) {
+      debugPrint('No se pudo revertir el usuario de Auth $authId: $e');
     }
   }
 

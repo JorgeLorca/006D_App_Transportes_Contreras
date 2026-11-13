@@ -7,6 +7,7 @@ import '../../theme/app_colors.dart';
 import '../../utils/formato.dart';
 import '../../widgets/admin_shell.dart';
 import '../../widgets/cartola_historica_tab.dart';
+import '../../widgets/paginacion_tabla.dart';
 import '../../widgets/revision_combustible_dialog.dart';
 import '../../widgets/stat_card.dart';
 
@@ -572,7 +573,12 @@ class _ListaRegistrosCombustibleScreenState extends State<ListaRegistrosCombusti
               return _buildListaAngosta(visibles);
             },
           ),
-          _buildPaginacion(total: total, pagina: pagina, totalPaginas: totalPaginas),
+          PaginacionTabla(
+            total: total,
+            pagina: pagina,
+            porPagina: _registrosPorPagina,
+            onCambiarPagina: (p) => setState(() => _pagina = p),
+          ),
         ],
       );
     }
@@ -821,127 +827,6 @@ class _ListaRegistrosCombustibleScreenState extends State<ListaRegistrosCombusti
           ),
         ),
       ],
-    );
-  }
-
-  // ------------------------------------------------------------ paginación
-
-  Widget _buildPaginacion({required int total, required int pagina, required int totalPaginas}) {
-    final desde = pagina * _registrosPorPagina + 1;
-    final hasta = (pagina + 1) * _registrosPorPagina > total ? total : (pagina + 1) * _registrosPorPagina;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-      decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: AppColors.border)),
-      ),
-      child: Wrap(
-        alignment: WrapAlignment.end,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 20,
-        runSpacing: 10,
-        children: [
-          Text(
-            'Mostrando $desde–$hasta de $total ${total == 1 ? 'resultado' : 'resultados'}',
-            style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
-          ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _botonFlecha(
-                Icons.chevron_left,
-                'Página anterior',
-                pagina > 0 ? () => setState(() => _pagina = pagina - 1) : null,
-              ),
-              for (final p in _paginasVisibles(totalPaginas, pagina)) ...[
-                const SizedBox(width: 6),
-                if (p == null)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 4),
-                    child: Text('…', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-                  )
-                else
-                  _botonNumero(p, p == pagina),
-              ],
-              const SizedBox(width: 6),
-              _botonFlecha(
-                Icons.chevron_right,
-                'Página siguiente',
-                pagina < totalPaginas - 1 ? () => setState(() => _pagina = pagina + 1) : null,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Páginas a mostrar (empiezan en 0). `null` representa los puntos
-  /// suspensivos. Con pocas páginas se muestran todas; con muchas, la
-  /// primera, la última y las vecinas de la actual.
-  List<int?> _paginasVisibles(int total, int actual) {
-    if (total <= 7) return List<int?>.generate(total, (i) => i);
-
-    final conjunto = <int>{0, total - 1, actual - 1, actual, actual + 1}
-      ..removeWhere((p) => p < 0 || p >= total);
-    final orden = conjunto.toList()..sort();
-
-    final resultado = <int?>[];
-    for (var i = 0; i < orden.length; i++) {
-      if (i > 0 && orden[i] - orden[i - 1] > 1) resultado.add(null);
-      resultado.add(orden[i]);
-    }
-    return resultado;
-  }
-
-  Widget _botonFlecha(IconData icono, String tooltip, VoidCallback? onTap) {
-    final activo = onTap != null;
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Icon(
-            icono,
-            size: 18,
-            color: activo ? AppColors.textPrimary : AppColors.textSecondary.withOpacity(0.35),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _botonNumero(int pagina, bool seleccionada) {
-    return InkWell(
-      onTap: seleccionada ? null : () => setState(() => _pagina = pagina),
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        width: 32,
-        height: 32,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: seleccionada ? AppColors.primary : Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: seleccionada ? AppColors.primary : AppColors.border),
-        ),
-        child: Text(
-          '${pagina + 1}',
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: seleccionada ? FontWeight.w800 : FontWeight.w600,
-            color: seleccionada ? Colors.white : AppColors.textPrimary,
-          ),
-        ),
-      ),
     );
   }
 
