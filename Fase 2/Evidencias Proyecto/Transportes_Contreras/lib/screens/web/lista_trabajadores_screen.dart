@@ -6,6 +6,8 @@ import 'trabajador_form_screen.dart';
 import 'modificar/trabajador_modificar_screen.dart';
 import '../../utils/csv_exporter.dart';
 
+typedef TrabajadorItem = Map<String, dynamic>;
+
 class ListaTrabajadoresScreen extends StatefulWidget {
   const ListaTrabajadoresScreen({super.key});
 
@@ -14,21 +16,24 @@ class ListaTrabajadoresScreen extends StatefulWidget {
 }
 
 class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
+  static const String _bucketDocumentos = 'documentos_identidad';
+
   final int _itemsPorPagina = 10;
   int _paginaActual = 1;
+  bool _ordenAscendente = true;
 
-  List<Map<String, dynamic>> _datosOriginales = [];
-  List<Map<String, dynamic>> _trabajadores = [];
+  List<TrabajadorItem> _datosOriginales = [];
+  List<TrabajadorItem> _trabajadores = [];
   bool _isLoading = true;
-  int _criterioOrden = 0;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _tablaScrollController = ScrollController();
 
   int get _totalPaginas {
     if (_trabajadores.isEmpty) return 1;
     return (_trabajadores.length / _itemsPorPagina).ceil();
   }
 
-  List<Map<String, dynamic>> get _trabajadoresPaginados {
+  List<TrabajadorItem> get _trabajadoresPaginados {
     if (_trabajadores.isEmpty) return [];
     final int inicio = (_paginaActual - 1) * _itemsPorPagina;
     if (inicio >= _trabajadores.length) return [];
@@ -47,6 +52,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _tablaScrollController.dispose();
     super.dispose();
   }
 
@@ -61,8 +67,8 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
 
       if (mounted) {
         final List<dynamic> listaRemota = data as List<dynamic>? ?? [];
-        final List<Map<String, dynamic>> datosMapeados = listaRemota.map((t) {
-          final map = t as Map<String, dynamic>;
+        final List<TrabajadorItem> datosMapeados = listaRemota.map((t) {
+          final map = t as TrabajadorItem;
           final nombre = (map['nombre_completo'] ?? 'Sin Nombre').toString();
 
           String iniciales = 'TR';
@@ -73,7 +79,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
             iniciales = partes[0][0].toUpperCase();
           }
 
-          return {
+          return <String, dynamic>{
             'rut': (map['rut'] ?? '').toString(),
             'nombre_completo': nombre,
             'fecha_nacimiento': (map['fecha_nacimiento'] ?? '').toString(),
@@ -92,10 +98,10 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
 
         setState(() {
           _datosOriginales = datosMapeados;
-          _trabajadores = List<Map<String, dynamic>>.from(_datosOriginales);
+          _trabajadores = List<TrabajadorItem>.from(_datosOriginales);
           _isLoading = false;
         });
-        _aplicarOrden();
+        _aplicarFiltrosYOrden();
       }
     } catch (e) {
       debugPrint('Error cargando trabajadores desde Supabase: $e');
@@ -114,7 +120,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
     return texto.isEmpty ? null : texto;
   }
 
-  Future<void> _abrirFormularioEdicion(Map<String, dynamic> item) async {
+  Future<void> _abrirFormularioEdicion(TrabajadorItem item) async {
     final fechaTexto = (item['fecha_nacimiento'] ?? '').toString();
     final fechaNacimiento = fechaTexto.isEmpty ? null : DateTime.tryParse(fechaTexto);
 
@@ -142,7 +148,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
     }
   }
 
-  Future<void> _eliminarTrabajador(Map<String, dynamic> trabajador) async {
+  Future<void> _eliminarTrabajador(TrabajadorItem trabajador) async {
     final bool? confirmar = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -211,30 +217,284 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
     }
   }
 
-  void _filtrarTrabajadores(String query) {
+  void _aplicarFiltrosYOrden() {
+    final query = _searchController.text.toLowerCase().trim();
+    final queryRutLimpio = query.replaceAll(RegExp(r'[.-]'), '');
+
+    final filtrados = _datosOriginales.where((t) {
+      if (query.isEmpty) return true;
+      final nombre = t['nombre'].toString().toLowerCase();
+      final rut = t['rut'].toString().toLowerCase();
+      final rutLimpio = rut.replaceAll(RegExp(r'[.-]'), '');
+
+      final coincideNombre = nombre.contains(query);
+      final coincideRut = rut.contains(query) ||
+          (queryRutLimpio.isNotEmpty && rutLimpio.contains(queryRutLimpio));
+
+      return coincideNombre || coincideRut;
+    }).toList();
+
+    filtrados.sort((a, b) {
+      final nombreA = a['nombre'].toString().toLowerCase();
+      final nombreB = b['nombre'].toString().toLowerCase();
+      return _ordenAscendente ? nombreA.compareTo(nombreB) : nombreB.compareTo(nombreA);
+    });
+
     setState(() {
-      _paginaActual = 1;
-      if (query.isEmpty) {
-        _trabajadores = List.from(_datosOriginales);
-      } else {
-        _trabajadores = _datosOriginales.where((t) {
-          final nombre = t['nombre'].toString().toLowerCase();
-          return nombre.contains(query.toLowerCase().trim());
-        }).toList();
+      _trabajadores = filtrados;
+      if (_paginaActual > _totalPaginas) {
+        _paginaActual = _totalPaginas;
       }
-      _aplicarOrden();
     });
   }
 
-  void _aplicarOrden() {
-    if (_criterioOrden == 1) {
-      _trabajadores.sort((a, b) => a['nombre'].toString().compareTo(b['nombre'].toString()));
-    } else {
-      final query = _searchController.text.toLowerCase().trim();
-      _trabajadores = _datosOriginales.where((t) {
-        return query.isEmpty || t['nombre'].toString().toLowerCase().contains(query);
-      }).toList();
+  void _filtrarTrabajadores(String query) {
+    _paginaActual = 1;
+    _aplicarFiltrosYOrden();
+  }
+
+  void _alternarOrdenNombre() {
+    _ordenAscendente = !_ordenAscendente;
+    _paginaActual = 1;
+    _aplicarFiltrosYOrden();
+  }
+
+  /// Resuelve la URL del documento desde el bucket "documentos_identidad"
+  Future<String?> _resolverUrlDocumento(String rawPath) async {
+    final limpia = rawPath.trim();
+    if (limpia.isEmpty || limpia.toLowerCase() == 'null') return null;
+    if (limpia.startsWith('http://') || limpia.startsWith('https://')) {
+      return limpia;
     }
+
+    final storage = Supabase.instance.client.storage;
+    try {
+      return await storage.from(_bucketDocumentos).createSignedUrl(limpia, 3600);
+    } catch (_) {
+      return storage.from(_bucketDocumentos).getPublicUrl(limpia);
+    }
+  }
+
+  Future<void> _abrirModalDocumento({
+    required String tituloDocumento,
+    required String nombreConductor,
+    required String rutConductor,
+    required String? rutaArchivo,
+  }) async {
+    final rutaLimpia = (rutaArchivo ?? '').trim();
+
+    if (rutaLimpia.isEmpty || rutaLimpia.toLowerCase() == 'null') {
+      showDialog(
+        context: context,
+        builder: (alertCtx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: const Row(
+            children: [
+              Icon(Icons.image_not_supported_outlined, color: AppColors.warning, size: 22),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Documento no adjuntado',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'El trabajador $nombreConductor no tiene una fotografía adjuntada para: $tituloDocumento.',
+            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(alertCtx).pop(),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+              child: const Text('Cerrar', style: TextStyle(color: Colors.white, fontSize: 12)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final urlResuelta = await _resolverUrlDocumento(rutaLimpia);
+    if (!mounted) return;
+
+    if (urlResuelta == null || urlResuelta.isEmpty) {
+      showDialog(
+        context: context,
+        builder: (alertCtx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: const Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.red, size: 22),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'No se pudo obtener el archivo',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'No fue posible generar el enlace de visualización desde el almacenamiento.',
+            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(alertCtx).pop(),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+              child: const Text('Cerrar', style: TextStyle(color: Colors.white, fontSize: 12)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (imgCtx) {
+        final screenWidth = MediaQuery.of(imgCtx).size.width;
+        final isMobileModal = screenWidth < 600;
+
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: Colors.white,
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: isMobileModal ? 12 : 24,
+            vertical: 24,
+          ),
+          child: Container(
+            width: 660,
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(imgCtx).size.height * 0.88,
+            ),
+            padding: EdgeInsets.all(isMobileModal ? 16 : 22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.badge_outlined, color: AppColors.primary, size: 22),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  tituloDocumento,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '$nombreConductor • RUT: $rutConductor',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: AppColors.textSecondary, size: 20),
+                      tooltip: 'Cerrar',
+                      onPressed: () => Navigator.of(imgCtx).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Flexible(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(minHeight: 240),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F172A),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: InteractiveViewer(
+                        minScale: 0.8,
+                        maxScale: 4.0,
+                        child: Image.network(
+                          urlResuelta,
+                          fit: BoxFit.contain,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return SizedBox(
+                              height: 300,
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  value: loadingProgress.expectedTotalBytes != null
+                                      ? loadingProgress.cumulativeBytesLoaded /
+                                          loadingProgress.expectedTotalBytes!
+                                      : null,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) {
+                            return const SizedBox(
+                              height: 240,
+                              child: Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(20.0),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.broken_image_outlined, color: Colors.white54, size: 42),
+                                      SizedBox(height: 10),
+                                      Text(
+                                        'No se pudo cargar la imagen del documento desde el servidor.',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(color: Colors.white70, fontSize: 13),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Deslice o pellizque para ampliar el documento',
+                  style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   int get _totalPersonal => _datosOriginales.length;
@@ -245,6 +505,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
   Widget build(BuildContext context) {
     final double anchoPantalla = MediaQuery.of(context).size.width;
     final bool esPantallaPequena = anchoPantalla < 750;
+    final bool usarScrollLateralTabla = anchoPantalla < 1200;
     final double paddingHorizontal = esPantallaPequena ? 16.0 : 32.0;
 
     return SingleChildScrollView(
@@ -372,11 +633,11 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
           ),
           const SizedBox(height: 24),
 
-          // 3. Buscador, Filtros y Ordenamiento Responsivo
+          // 3. Buscador y Ordenamiento
           _buildZonaBuscadorYFiltros(esPantallaPequena),
           const SizedBox(height: 20),
 
-          // 4. Tabla de Trabajadores: Diseño Original con soporte responsivo
+          // 4. Tabla de Trabajadores
           if (_isLoading)
             const Center(
               child: Padding(
@@ -394,26 +655,29 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: AppColors.border),
               ),
-              child: esPantallaPequena
-                  // EN MÓVIL: Scroll lateral con filas fijas de 800px para evitar aplastamientos
-                  ? SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SizedBox(
-                        width: 800,
-                        child: Column(
-                          children: [
-                            _buildEncabezadoOriginal(),
-                            ..._trabajadoresPaginados.map((item) => Column(
-                                  children: [
-                                    _buildFilaOriginal(item),
-                                    const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                                  ],
-                                )),
-                          ],
+              child: usarScrollLateralTabla
+                  ? Scrollbar(
+                      controller: _tablaScrollController,
+                      thumbVisibility: true,
+                      child: SingleChildScrollView(
+                        controller: _tablaScrollController,
+                        scrollDirection: Axis.horizontal,
+                        child: SizedBox(
+                          width: 1120,
+                          child: Column(
+                            children: [
+                              _buildEncabezadoOriginal(),
+                              ..._trabajadoresPaginados.map((item) => Column(
+                                    children: [
+                                      _buildFilaOriginal(item),
+                                      const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                                    ],
+                                  )),
+                            ],
+                          ),
                         ),
                       ),
                     )
-                  // EN PC: Tu diseño original exacto con ListView.separated al 100%
                   : Column(
                       children: [
                         _buildEncabezadoOriginal(),
@@ -431,21 +695,20 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
             ),
           const SizedBox(height: 16),
 
-          // 5. Paginación y Contador Responsivo
+          // 5. Paginación
           _buildPaginacionResponsiva(esPantallaPequena),
 
           const SizedBox(height: 48),
           const Divider(height: 1, color: AppColors.border),
           const SizedBox(height: 16),
 
-          // 6. Footer Estandarizado Responsivo
+          // 6. Footer
           _buildFooterResponsivo(esPantallaPequena),
         ],
       ),
     );
   }
 
-  // Encabezado original con su borde y padding original
   Widget _buildEncabezadoOriginal() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
@@ -458,6 +721,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
           Expanded(flex: 3, child: Text('Contacto', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
           Expanded(flex: 2, child: Text('Estado', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
           Expanded(flex: 2, child: Text('RUT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
+          Expanded(flex: 4, child: Text('Documentos', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
           Expanded(flex: 3, child: Text('Último Viaje', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
           SizedBox(width: 40),
         ],
@@ -465,8 +729,12 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
     );
   }
 
-  // Fila original exacta de tu diseño
-  Widget _buildFilaOriginal(Map<String, dynamic> item) {
+  Widget _buildFilaOriginal(TrabajadorItem item) {
+    final String nombre = item['nombre'].toString();
+    final String rut = item['rut'].toString();
+    final String urlCarnet = (item['url_cedula_identidad'] ?? '').toString();
+    final String urlLicencia = (item['url_licencia_conducir'] ?? '').toString();
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
       child: Row(
@@ -484,7 +752,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    item['nombre'],
+                    nombre,
                     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                   ),
                 ),
@@ -545,7 +813,53 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
           // RUT
           Expanded(
             flex: 2,
-            child: Text(item['rut'], style: const TextStyle(fontSize: 12, color: Color(0xFF334155), fontWeight: FontWeight.w500)),
+            child: Text(rut, style: const TextStyle(fontSize: 12, color: Color(0xFF334155), fontWeight: FontWeight.w500)),
+          ),
+          // Documentos (Botones Carnet y Licencia más anchos y cómodos)
+          Expanded(
+            flex: 4,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                SizedBox(
+                  width: 96,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _abrirModalDocumento(
+                      tituloDocumento: 'Cédula de Identidad',
+                      nombreConductor: nombre,
+                      rutConductor: rut,
+                      rutaArchivo: urlCarnet,
+                    ),
+                    icon: const Icon(Icons.badge_outlined, size: 14),
+                    label: const Text('Carnet', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      side: const BorderSide(color: AppColors.border),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 102,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _abrirModalDocumento(
+                      tituloDocumento: 'Licencia de Conducir',
+                      nombreConductor: nombre,
+                      rutConductor: rut,
+                      rutaArchivo: urlLicencia,
+                    ),
+                    icon: const Icon(Icons.drive_eta_outlined, size: 14),
+                    label: const Text('Licencia', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      side: const BorderSide(color: AppColors.border),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           // Último Viaje
           Expanded(
@@ -598,7 +912,6 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
     );
   }
 
-  // Zona de búsqueda con filtro a la derecha en celular y botón de recarga
   Widget _buildZonaBuscadorYFiltros(bool esPantallaPequena) {
     final Widget campoInput = Container(
       height: 40,
@@ -612,7 +925,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
         onChanged: _filtrarTrabajadores,
         style: const TextStyle(fontSize: 13),
         decoration: InputDecoration(
-          hintText: 'Buscar por nombre o apellido...',
+          hintText: 'Buscar por nombre, apellido o RUT...',
           hintStyle: const TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
           prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF94A3B8)),
           suffixIcon: _searchController.text.isNotEmpty
@@ -663,10 +976,37 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const Text('Ordenar por:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
-        const SizedBox(width: 8),
-        _buildBotonOrden('Recientes', 0),
         const SizedBox(width: 6),
-        _buildBotonOrden('Nombre (A-Z)', 1),
+        InkWell(
+          onTap: _alternarOrdenNombre,
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE2E8F0),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _ordenAscendente ? 'Nombre (A-Z)' : 'Nombre (Z-A)',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  _ordenAscendente ? Icons.arrow_upward : Icons.arrow_downward,
+                  size: 13,
+                  color: AppColors.textPrimary,
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
 
@@ -866,34 +1206,6 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
           const SizedBox(height: 8),
           Text(valor, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary, height: 1.1)),
         ],
-      ),
-    );
-  }
-
-  Widget _buildBotonOrden(String texto, int index) {
-    final bool activo = _criterioOrden == index;
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _criterioOrden = index;
-          _aplicarOrden();
-        });
-      },
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: activo ? const Color(0xFFE2E8F0) : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(
-          texto,
-          style: TextStyle(
-            fontSize: 11.5,
-            fontWeight: activo ? FontWeight.bold : FontWeight.normal,
-            color: activo ? AppColors.textPrimary : AppColors.textSecondary,
-          ),
-        ),
       ),
     );
   }

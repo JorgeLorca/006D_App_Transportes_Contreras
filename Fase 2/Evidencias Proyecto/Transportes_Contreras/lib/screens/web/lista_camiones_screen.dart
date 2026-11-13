@@ -5,6 +5,8 @@ import '../../theme/app_colors.dart';
 import 'camion_form_screen.dart';
 import 'modificar/camion_modificar_screen.dart';
 
+typedef CamionItem = Map<String, dynamic>;
+
 class ListaCamionesScreen extends StatefulWidget {
   const ListaCamionesScreen({super.key});
 
@@ -17,8 +19,11 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
   final TextEditingController _searchController = TextEditingController();
   int _paginaActual = 1;
 
-  List<Map<String, dynamic>> _datosOriginales = [];
-  List<Map<String, dynamic>> _camiones = [];
+  // Filtro avanzado de estado: 'todos', 'disponible', 'no_disponible'
+  String _filtroDisponibilidad = 'todos';
+
+  List<CamionItem> _datosOriginales = [];
+  List<CamionItem> _camiones = [];
   bool _isLoading = true;
 
   int get _totalPaginas {
@@ -26,7 +31,7 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
     return (_camiones.length / _itemsPorPagina).ceil();
   }
 
-  List<Map<String, dynamic>> get _camionesPaginados {
+  List<CamionItem> get _camionesPaginados {
     if (_camiones.isEmpty) return [];
     final int inicio = (_paginaActual - 1) * _itemsPorPagina;
     if (inicio >= _camiones.length) return [];
@@ -59,10 +64,10 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
 
       if (mounted) {
         final List<dynamic> listaRemota = data as List<dynamic>? ?? [];
-        final List<Map<String, dynamic>> datosMapeados = listaRemota.map((c) {
-          final map = c as Map<String, dynamic>;
-          final estadoStr = (map['estado'] ?? '').toString().toLowerCase();
-          return {
+        final List<CamionItem> datosMapeados = listaRemota.map((c) {
+          final map = c as CamionItem;
+          final estadoStr = (map['estado'] ?? '').toString().toLowerCase().trim();
+          return <String, dynamic>{
             'id': map['id'],
             'patente': (map['patente'] ?? 'S/P').toString(),
             'marca': (map['marca'] ?? 'Genérico').toString(),
@@ -79,9 +84,9 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
 
         setState(() {
           _datosOriginales = datosMapeados;
-          _camiones = List<Map<String, dynamic>>.from(_datosOriginales);
           _isLoading = false;
         });
+        _aplicarFiltros();
       }
     } catch (e) {
       debugPrint('Error cargando camiones desde Supabase: $e');
@@ -100,7 +105,7 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
     return texto.isEmpty ? null : texto;
   }
 
-  Future<void> _abrirFormularioEdicion(Map<String, dynamic> item) async {
+  Future<void> _abrirFormularioEdicion(CamionItem item) async {
     final anioRaw = item['anio'];
     final anio = anioRaw is int ? anioRaw : int.tryParse('$anioRaw') ?? DateTime.now().year;
 
@@ -130,7 +135,7 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
     }
   }
 
-  Future<void> _eliminarCamion(Map<String, dynamic> camion) async {
+  Future<void> _eliminarCamion(CamionItem camion) async {
     final bool? confirmar = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -186,8 +191,8 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(resultado.isNotEmpty 
-                ? 'Camión ${camion['patente']} eliminado de Supabase.' 
+            content: Text(resultado.isNotEmpty
+                ? 'Camión ${camion['patente']} eliminado de Supabase.'
                 : 'Camión removido de la vista.'),
             backgroundColor: AppColors.textPrimary,
           ),
@@ -202,21 +207,192 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
     }
   }
 
-  void _filtrarCamiones(String query) {
+  /// Combina el filtro de texto y el filtro avanzado de disponibilidad
+  void _aplicarFiltros() {
+    final q = _searchController.text.toLowerCase().trim();
     setState(() {
       _paginaActual = 1;
-      if (query.isEmpty) {
-        _camiones = List.from(_datosOriginales);
-      } else {
-        final q = query.toLowerCase().trim();
-        _camiones = _datosOriginales.where((c) {
-          final patente = c['patente'].toString().toLowerCase();
-          final marca = c['marca'].toString().toLowerCase();
-          final modelo = c['modelo'].toString().toLowerCase();
-          return patente.contains(q) || marca.contains(q) || modelo.contains(q);
-        }).toList();
-      }
+      _camiones = _datosOriginales.where((c) {
+        // 1. Filtro de texto (patente, marca, modelo)
+        final patente = c['patente'].toString().toLowerCase();
+        final marca = c['marca'].toString().toLowerCase();
+        final modelo = c['modelo'].toString().toLowerCase();
+        final coincideTexto = q.isEmpty || patente.contains(q) || marca.contains(q) || modelo.contains(q);
+
+        if (!coincideTexto) return false;
+
+        // 2. Filtro de disponibilidad ('disponible' vs 'asignado'/no disponible)
+        final bool esDisponible = c['disponible'] == true;
+        final String estadoRaw = c['estado'].toString().toLowerCase().trim();
+
+        if (_filtroDisponibilidad == 'disponible') {
+          return esDisponible;
+        } else if (_filtroDisponibilidad == 'no_disponible') {
+          return !esDisponible || estadoRaw == 'asignado';
+        }
+
+        return true;
+      }).toList();
     });
+  }
+
+  void _filtrarCamiones(String query) {
+    _aplicarFiltros();
+  }
+
+  /// Abre el Pop-up de Filtros Avanzados
+  void _abrirModalFiltrosAvanzados() {
+    String seleccionTemporal = _filtroDisponibilidad;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              backgroundColor: Colors.white,
+              title: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: const [
+                      Icon(Icons.filter_list, color: AppColors.primary, size: 22),
+                      SizedBox(width: 10),
+                      Text(
+                        'Filtros Avanzados',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18, color: AppColors.textSecondary),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 360,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Filtrar unidades por disponibilidad operativa:',
+                      style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildOpcionRadioFiltro(
+                      titulo: 'Todos los vehículos',
+                      subtitulo: 'Muestra la flota completa sin restricción',
+                      valor: 'todos',
+                      grupo: seleccionTemporal,
+                      onChanged: (v) => setModalState(() => seleccionTemporal = v!),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildOpcionRadioFiltro(
+                      titulo: 'Disponible',
+                      subtitulo: 'Camiones libres listos para asignar viaje',
+                      valor: 'disponible',
+                      grupo: seleccionTemporal,
+                      colorBadge: AppColors.success,
+                      onChanged: (v) => setModalState(() => seleccionTemporal = v!),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildOpcionRadioFiltro(
+                      titulo: 'No Disponible',
+                      subtitulo: 'Camiones actualmente asignados o en ruta',
+                      valor: 'no_disponible',
+                      grupo: seleccionTemporal,
+                      colorBadge: const Color(0xFF991B1B),
+                      onChanged: (v) => setModalState(() => seleccionTemporal = v!),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    setState(() => _filtroDisponibilidad = 'todos');
+                    _aplicarFiltros();
+                    Navigator.of(ctx).pop();
+                  },
+                  child: const Text('Limpiar', style: TextStyle(color: AppColors.textSecondary)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() => _filtroDisponibilidad = seleccionTemporal);
+                    _aplicarFiltros();
+                    Navigator.of(ctx).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('Aplicar Filtro', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildOpcionRadioFiltro({
+    required String titulo,
+    required String subtitulo,
+    required String valor,
+    required String grupo,
+    required ValueChanged<String?> onChanged,
+    Color? colorBadge,
+  }) {
+    final bool seleccionado = valor == grupo;
+    return InkWell(
+      onTap: () => onChanged(valor),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: seleccionado ? AppColors.primary.withOpacity(0.06) : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: seleccionado ? AppColors.primary : AppColors.border,
+            width: seleccionado ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Radio<String>(
+              value: valor,
+              groupValue: grupo,
+              activeColor: AppColors.primary,
+              onChanged: onChanged,
+            ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    titulo,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.bold,
+                      color: colorBadge ?? AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitulo,
+                    style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -449,8 +625,9 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
     );
   }
 
-  // Widget para el buscador + botón de filtro + botón agregar adaptado
   Widget _buildBarraBusquedaYAcciones(bool esPantallaPequena) {
+    final bool filtroActivo = _filtroDisponibilidad != 'todos';
+
     final Widget campoInput = TextField(
       controller: _searchController,
       onChanged: _filtrarCamiones,
@@ -485,22 +662,30 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
       ),
     );
 
-    // Botón de filtro: con texto en PC, sólo icono en celular
     final Widget botonFiltros = OutlinedButton(
-      onPressed: () {},
+      onPressed: _abrirModalFiltrosAvanzados,
       style: OutlinedButton.styleFrom(
-        backgroundColor: Colors.white,
-        side: const BorderSide(color: AppColors.border),
+        backgroundColor: filtroActivo ? AppColors.primary.withOpacity(0.08) : Colors.white,
+        side: BorderSide(color: filtroActivo ? AppColors.primary : AppColors.border, width: filtroActivo ? 1.5 : 1),
         padding: EdgeInsets.symmetric(horizontal: esPantallaPequena ? 12 : 16, vertical: 14),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.filter_list, size: 18, color: Color(0xFF475569)),
+          Icon(Icons.filter_list, size: 18, color: filtroActivo ? AppColors.primary : const Color(0xFF475569)),
           if (!esPantallaPequena) ...[
             const SizedBox(width: 8),
-            const Text('Filtros Avanzados', style: TextStyle(color: Color(0xFF475569), fontSize: 13, fontWeight: FontWeight.w600)),
+            Text(
+              filtroActivo
+                  ? (_filtroDisponibilidad == 'disponible' ? 'Filtro: Disponible' : 'Filtro: No Disponible')
+                  : 'Filtros Avanzados',
+              style: TextStyle(
+                color: filtroActivo ? AppColors.primary : const Color(0xFF475569),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ],
       ),
@@ -528,7 +713,6 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
     );
 
     if (!esPantallaPequena) {
-      // En PC: todo en una sola fila
       return Row(
         children: [
           Expanded(child: campoInput),
@@ -539,7 +723,6 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
         ],
       );
     } else {
-      // En Celular: Buscador + Botón Filtro (icono) en la fila superior, y Agregar Camión a todo el ancho abajo
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -557,7 +740,6 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
     }
   }
 
-  // Footer limpio adaptado a pantallas pequeñas
   Widget _buildFooterResponsivo(bool esPantallaPequena) {
     final enlaces = Row(
       mainAxisSize: MainAxisSize.min,
@@ -593,7 +775,6 @@ class _ListaCamionesScreenState extends State<ListaCamionesScreen> {
       );
     }
 
-    // Estilo móvil vertical centrado sin desbordes
     return Column(
       children: [
         Row(
