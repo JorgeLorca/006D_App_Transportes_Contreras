@@ -94,7 +94,8 @@ class _ListaRegistrosCombustibleScreenState extends State<ListaRegistrosCombusti
       if (texto.isNotEmpty && !_normalizar(r.conductorEtiqueta).contains(texto)) return false;
       if (_estadoFiltro != null && r.estadoRevision != _estadoFiltro) return false;
       if (rango != null) {
-        final fecha = r.registradoEn.toLocal();
+        final d = r.registradoEn;
+        final fecha = DateTime(d.year, d.month, d.day, d.hour, d.minute, d.second);
         final fin = DateTime(rango.end.year, rango.end.month, rango.end.day, 23, 59, 59);
         if (fecha.isBefore(rango.start) || fecha.isAfter(fin)) return false;
       }
@@ -123,8 +124,7 @@ class _ListaRegistrosCombustibleScreenState extends State<ListaRegistrosCombusti
 
   static String _fechaCorta(DateTime d) => '${d.day.toString().padLeft(2, '0')} ${_meses[d.month - 1]} ${d.year}';
 
-  static String _fechaHora(DateTime utc) {
-    final d = utc.toLocal();
+  static String _fechaHora(DateTime d) {
     return '${_fechaCorta(d)}, ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
   }
 
@@ -315,33 +315,36 @@ class _ListaRegistrosCombustibleScreenState extends State<ListaRegistrosCombusti
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var i = 0; i < tabs.length; i++)
-            InkWell(
-              onTap: () => setState(() => _tabActual = i),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: _tabActual == i ? AppColors.primary : Colors.transparent,
-                      width: 3,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < tabs.length; i++)
+              InkWell(
+                onTap: () => setState(() => _tabActual = i),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color: _tabActual == i ? AppColors.primary : Colors.transparent,
+                        width: 3,
+                      ),
+                    ),
+                  ),
+                  child: Text(
+                    tabs[i],
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: _tabActual == i ? FontWeight.w700 : FontWeight.w500,
+                      color: _tabActual == i ? AppColors.primary : AppColors.textSecondary,
                     ),
                   ),
                 ),
-                child: Text(
-                  tabs[i],
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: _tabActual == i ? FontWeight.w700 : FontWeight.w500,
-                    color: _tabActual == i ? AppColors.primary : AppColors.textSecondary,
-                  ),
-                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

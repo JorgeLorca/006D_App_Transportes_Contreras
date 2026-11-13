@@ -38,6 +38,10 @@ class TransportesContrerasApp extends StatelessWidget {
         colorSchemeSeed: AppColors.primary,
         scaffoldBackgroundColor: AppColors.background,
         fontFamily: 'Segoe UI',
+        dialogTheme: const DialogThemeData(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+        ),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFF0F172A),
           elevation: 0,
