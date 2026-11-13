@@ -224,6 +224,12 @@ class _AppSidebarState extends State<AppSidebar> {
                             isSelected: widget.selectedIndex == 15,
                             onTap: () => widget.onItemSelected?.call(15),
                           ),
+                          _buildSubmenuItem(
+                            label: 'Monitoreo de Asistencia',
+                            icon: Icons.fact_check_outlined,
+                            isSelected: widget.selectedIndex == 16,
+                            onTap: () => widget.onItemSelected?.call(16),
+                          ),
                         ],
                       ),
                     ),

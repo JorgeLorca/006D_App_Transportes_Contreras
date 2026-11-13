@@ -8,6 +8,7 @@ import '../screens/web/admin_home_screen.dart';
 import '../screens/web/lista_consignatarios_screen.dart';
 import '../screens/web/asignar_viaje_screen.dart';
 import '../screens/web/lista_registros_combustible_screen.dart';
+import '../screens/web/monitoreo_asistencia_screen.dart';
 
 class AdminShell extends StatefulWidget {
   const AdminShell({
@@ -102,7 +103,20 @@ class _AdminShellState extends State<AdminShell> {
       return;
     }
 
-    if ((index > 0 && index < 10) || index > 15) {
+    // 16 = Gestión Administrativa > Monitoreo de Asistencia
+    if (index == 16) {
+      if (_currentIndex == 16) return;
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) => const MonitoreoAsistenciaScreen(),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+        ),
+      );
+      return;
+    }
+
+    if ((index > 0 && index < 10) || index > 16) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Módulo $index en construcción.')),
       );
