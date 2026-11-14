@@ -54,6 +54,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.14.1
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -76,6 +77,7 @@ flutter:
     - assets/images/logo_transportes.jpeg  
     - assets/images/camiones_oficina.jpg
     - assets/images/fondo_admin.jpg
+    - assets/images/icon/TC-icon.png
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
@@ -106,3 +108,10 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/icon/TC-icon.png"
+  adaptive_icon_background: "#13428A" # Azul del fondo de tu logo para iconos adaptativos en Android
+  adaptive_icon_foreground: "assets/images/icon/TC-icon.png"
