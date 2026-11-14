@@ -152,7 +152,8 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
   }
 
   String? _validarPallets(String? v) {
-    if (v == null || v.trim().isEmpty) return 'Ingresa la cantidad de pallets';
+    // Opcional: vacío = pendiente (lo completa el conductor).
+    if (v == null || v.trim().isEmpty) return null;
     final n = int.tryParse(v.trim());
     if (n == null || n < 0) return 'Cantidad inválida';
     return null;
@@ -231,16 +232,17 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
     }
 
     final observaciones = _observacionesCtrl.text.trim();
+    final palletsTexto = _palletsCtrl.text.trim();
     final viaje = Viaje(
       conductorRut: _conductorRut!,
       camionId: _camionId!,
       clienteId: _clienteId!,
-      consignatarioId: _consignatarioId!,
+      consignatarioId: _consignatarioId, // null = pendiente
       regionId: _regionId!,
       fechaViaje: _fechaProgramada!,
       horaCarga: _horaCarga!,
       horaDescarga: _horaDescarga!,
-      pallets: int.parse(_palletsCtrl.text.trim()),
+      pallets: palletsTexto.isEmpty ? null : int.parse(palletsTexto), // null = pendiente
       observacionesAdmin: observaciones.isEmpty ? null : observaciones,
     );
 
@@ -257,10 +259,10 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
       resumen: {
         'Cliente (origen)': _nombreDe(_clientes, _clienteId),
         'Dirección origen': _direccionOrigenCtrl.text,
-        'Destino': _nombreDe(_consignatarios, _consignatarioId),
-        'Dirección destino': _direccionDestinoCtrl.text,
+        'Destino': _consignatarioId == null ? 'Pendiente' : _nombreDe(_consignatarios, _consignatarioId),
+        'Dirección destino': _direccionDestinoCtrl.text.trim().isEmpty ? 'Pendiente' : _direccionDestinoCtrl.text,
         'Región': regionNombre,
-        'Pallets': viaje.pallets.toString(),
+        'Pallets': viaje.pallets?.toString() ?? 'Pendiente',
         'Fecha': _fechaCtrl.text,
         'Hora de carga': _horaCargaCtrl.text,
         'Hora de descarga': _horaDescargaCtrl.text,
@@ -441,7 +443,7 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
     );
 
     final campoPallets = LabeledTextField(
-      label: 'Pallets (cantidad)',
+      label: 'Pallets (cantidad) · opcional',
       controller: _palletsCtrl,
       hint: '0',
       icon: Icons.info_outline,
@@ -495,7 +497,7 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
     );
 
     final campoConsignatario = LabeledDropdownField(
-      label: 'Destino (consignatario)',
+      label: 'Destino (consignatario) · opcional',
       value: _consignatarioId,
       items: _opciones(_consignatarios),
       hint: _hintSelect(
@@ -503,7 +505,6 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
       icon: Icons.near_me_outlined,
       loading: _cargandoOpciones,
       onChanged: _onConsignatarioChanged,
-      validator: (v) => v == null ? 'Selecciona el consignatario de destino' : null,
     );
 
     final campoFecha = LabeledTextField(
