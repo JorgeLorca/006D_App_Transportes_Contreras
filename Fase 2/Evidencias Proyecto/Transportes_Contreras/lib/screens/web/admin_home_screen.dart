@@ -25,7 +25,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   int _alertasCount = 0;
 
   Map<String, dynamic>? _ultimoIncidente;
-  List<dynamic> _viajesRecientes = [];
+  List<dynamic> _todosLosViajes = [];
+
+  // Filtros de la tabla de viajes
+  final TextEditingController _busquedaViajesCtrl = TextEditingController();
+  DateTime _fechaSeleccionada = DateTime.now();
+  String _estadoFiltro = 'todos'; // 'todos', 'en_curso', 'pendiente', 'completado'
 
   // Mapas de búsqueda rápida por ID / RUT para resolver nombres y patentes con 100% de certeza
   Map<String, String> _mapaConductores = {};
@@ -51,6 +56,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   @override
   void dispose() {
     _tablaScrollController.dispose();
+    _busquedaViajesCtrl.dispose();
     super.dispose();
   }
 
@@ -58,7 +64,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     try {
       final supabase = Supabase.instance.client;
 
-      // Ejecutar consultas principales y catálogos en paralelo
       final results = await Future.wait([
         supabase.from('conductores').count(CountOption.exact),
         supabase.from('viajes').count(CountOption.exact).eq('estado', 'en_curso'),
@@ -70,12 +75,11 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             .order('reportado_en', ascending: false)
             .limit(1)
             .catchError((_) => <dynamic>[]),
-        // Viajes ordenados por iniciado_en descendente
+        // Todos los viajes ordenados por fecha_viaje descendente
         supabase
             .from('viajes')
             .select('*, clientes(nombre_empresa)')
-            .order('iniciado_en', ascending: false, nullsFirst: false)
-            .limit(5)
+            .order('fecha_viaje', ascending: false)
             .catchError((_) => <dynamic>[]),
         // Catálogos para cruzar IDs con nombres/patentes
         supabase.from('conductores').select('*').catchError((_) => <dynamic>[]),
@@ -96,7 +100,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       final List<dynamic> listaConsignatarios = results[8] as List<dynamic>;
       final List<dynamic> listaRegiones = results[9] as List<dynamic>;
 
-      // Construir mapas de resolución por ID y RUT
       final Map<String, String> mapCond = {};
       for (final c in listaConductores) {
         final nombre = (c['nombre_completo'] ?? c['nombre'] ?? '').toString().trim();
@@ -142,7 +145,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           _cargasPendientesCount = pendientesCount;
           _alertasCount = totalIncidentes;
           _ultimoIncidente = ultimoIncidente;
-          _viajesRecientes = viajesData;
+          _todosLosViajes = viajesData;
           _mapaConductores = mapCond;
           _mapaCamiones = mapCam;
           _mapaConsignatarios = mapCons;
@@ -156,69 +159,199 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     }
   }
 
-  List<dynamic> get _filasAMostrar {
-    if (_viajesRecientes.isNotEmpty) {
-      return _viajesRecientes;
+  /// Extrae la fecha exacta de la columna fecha_viaje (YYYY-MM-DD) sin desfase de zona horaria
+  DateTime? _obtenerFechaViaje(dynamic item) {
+    final raw = item['fecha_viaje']?.toString().trim() ?? '';
+    if (raw.isEmpty) return null;
+
+    if (raw.length >= 10) {
+      final partes = raw.substring(0, 10).split('-');
+      if (partes.length == 3) {
+        final anio = int.tryParse(partes[0]);
+        final mes = int.tryParse(partes[1]);
+        final dia = int.tryParse(partes[2]);
+        if (anio != null && mes != null && dia != null) {
+          return DateTime(anio, mes, dia);
+        }
+      }
     }
-    return [
-      {
-        'id': 'V-2845',
-        'conductor_nombre': 'Marco Soto',
-        'camion_patente': 'KJ-LP-42',
-        'clientes': {'nombre_empresa': 'Falabella'},
-        'consignatario_nombre': 'Centro Distribución Pudahuel',
-        'region': 'Metropolitana',
-        'estado': 'en_curso',
-      },
-      {
-        'id': 'V-2846',
-        'conductor_nombre': 'Luis Rivas',
-        'camion_patente': 'RT-GH-88',
-        'clientes': {'nombre_empresa': 'Samsung'},
-        'consignatario_nombre': 'Bodega Central Concepción',
-        'region': 'Biobío',
-        'estado': 'retrasado',
-      },
-      {
-        'id': 'V-2847',
-        'conductor_nombre': 'Elena Paz',
-        'camion_patente': 'PL-MN-19',
-        'clientes': {'nombre_empresa': 'Paris'},
-        'consignatario_nombre': 'Tienda Mall Plaza',
-        'region': 'Valparaíso',
-        'estado': 'completado',
-      },
+
+    final parsed = DateTime.tryParse(raw);
+    if (parsed != null) {
+      return DateTime(parsed.year, parsed.month, parsed.day);
+    }
+    return null;
+  }
+
+  bool _mismoDia(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  /// Lista filtrada por día seleccionado (fecha_viaje), texto y estado
+  List<dynamic> get _filasAMostrar {
+    final query = _busquedaViajesCtrl.text.toLowerCase().trim();
+
+    final filtrados = _todosLosViajes.where((item) {
+      final fechaItem = _obtenerFechaViaje(item);
+      if (fechaItem == null || !_mismoDia(fechaItem, _fechaSeleccionada)) {
+        return false;
+      }
+
+      final estadoRaw = (item['estado'] ?? '').toString().toLowerCase().trim();
+      if (_estadoFiltro != 'todos') {
+        if (_estadoFiltro == 'en_curso') {
+          if (estadoRaw != 'en_curso' && estadoRaw != 'en ruta') return false;
+        } else if (estadoRaw != _estadoFiltro) {
+          return false;
+        }
+      }
+
+      if (query.isNotEmpty) {
+        final datos = _extraerDatosFilaViaje(item);
+        final conductor = datos['conductor']!.toLowerCase();
+        final camion = datos['camion']!.toLowerCase();
+        final cliente = datos['cliente']!.toLowerCase();
+        final consignatario = datos['consignatario']!.toLowerCase();
+
+        final coincide = conductor.contains(query) ||
+            camion.contains(query) ||
+            cliente.contains(query) ||
+            consignatario.contains(query);
+        if (!coincide) return false;
+      }
+
+      return true;
+    }).toList();
+
+    filtrados.sort((a, b) {
+      final fa = _obtenerFechaViaje(a) ?? DateTime(2000);
+      final fb = _obtenerFechaViaje(b) ?? DateTime(2000);
+      final cmpFecha = fb.compareTo(fa);
+      if (cmpFecha != 0) return cmpFecha;
+
+      final ha = (a['hora_carga'] ?? '').toString();
+      final hb = (b['hora_carga'] ?? '').toString();
+      return ha.compareTo(hb);
+    });
+
+    return filtrados;
+  }
+
+  Future<void> _seleccionarFechaTabla() async {
+    final now = DateTime.now();
+    final elegida = await showDatePicker(
+      context: context,
+      initialDate: _fechaSeleccionada,
+      firstDate: DateTime(2024),
+      lastDate: DateTime(now.year + 2),
+      helpText: 'Seleccionar día de operación',
+      cancelText: 'CANCELAR',
+      confirmText: 'ACEPTAR',
+      locale: const Locale('es', 'CL'),
+    );
+    if (elegida != null) {
+      setState(() {
+        _fechaSeleccionada = elegida;
+      });
+    }
+  }
+
+  Future<void> _abrirFiltroEstadoViajes() async {
+    final opciones = [
+      {'valor': 'todos', 'etiqueta': 'Todos los estados'},
+      {'valor': 'en_curso', 'etiqueta': 'En Curso'},
+      {'valor': 'pendiente', 'etiqueta': 'Pendiente'},
+      {'valor': 'completado', 'etiqueta': 'Completado'},
     ];
+
+    final seleccion = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text(
+          'Filtrar viajes por estado',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+        ),
+        children: opciones.map((op) {
+          final activo = _estadoFiltro == op['valor'];
+          return SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, op['valor']),
+            child: Row(
+              children: [
+                Icon(
+                  activo ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                  size: 18,
+                  color: activo ? AppColors.primary : AppColors.textSecondary,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  op['etiqueta']!,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: activo ? FontWeight.bold : FontWeight.normal,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+
+    if (seleccion != null) {
+      setState(() {
+        _estadoFiltro = seleccion;
+      });
+    }
+  }
+
+  String get _rotuloFechaTabla {
+    final hoy = DateTime.now();
+    final fechaFmt =
+        '${_fechaSeleccionada.day.toString().padLeft(2, '0')}/${_fechaSeleccionada.month.toString().padLeft(2, '0')}/${_fechaSeleccionada.year}';
+    if (_mismoDia(_fechaSeleccionada, hoy)) {
+      return 'Hoy ($fechaFmt)';
+    }
+    return fechaFmt;
+  }
+
+  String get _rotuloEstadoTabla {
+    switch (_estadoFiltro) {
+      case 'en_curso':
+        return 'Estado: En Curso';
+      case 'pendiente':
+        return 'Estado: Pendiente';
+      case 'completado':
+        return 'Estado: Completado';
+      default:
+        return 'Estado: Todos';
+    }
   }
 
   /// Extrae los valores resueltos de cada fila de viaje
   Map<String, String> _extraerDatosFilaViaje(dynamic item) {
     final String idCorto = _formatearId(item['id'].toString());
 
-    // 1. Conductor (busca por conductor_id o conductor_rut en el mapa cargado)
     final String rawCondId = (item['conductor_id'] ?? '').toString();
     final String rawCondRut = (item['conductor_rut'] ?? '').toString();
     final String conductor = _mapaConductores[rawCondId] ??
         _mapaConductores[rawCondRut] ??
         (item['conductor_nombre'] ?? (rawCondRut.isNotEmpty ? rawCondRut : 'Sin asignar')).toString();
 
-    // 2. Camión (busca por camion_id en el mapa de patentes)
     final String rawCamId = (item['camion_id'] ?? item['id_camion'] ?? '').toString();
     final String camion = _mapaCamiones[rawCamId] ??
         (item['camion_patente'] ?? item['patente'] ?? 'Por asignar').toString().toUpperCase();
 
-    // 3. Cliente
     final String cliente = (item['clientes']?['nombre_empresa'] ??
             item['cliente_nombre'] ??
             'Sin cliente')
         .toString();
 
-    // 4. Consignatario (busca por consignatario_id)
     final String rawConsId = (item['consignatario_id'] ?? item['id_consignatario'] ?? '').toString();
     final String consignatario = _mapaConsignatarios[rawConsId] ??
         (item['consignatario_nombre'] ?? item['consignatario'] ?? 'No especificado').toString();
 
-    // 5. Región (busca por region_id)
     final String rawRegId = (item['region_id'] ?? item['id_region'] ?? '').toString();
     final String region = _mapaRegiones[rawRegId] ??
         (item['region_nombre'] ?? item['region'] ?? 'Por definir').toString();
@@ -239,6 +372,318 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       return '#${rawId.substring(0, 8).toUpperCase()}';
     }
     return rawId.startsWith('#') ? rawId : '#$rawId';
+  }
+
+  String _formatearClp(dynamic valor) {
+    if (valor == null) return '\$0';
+    final num numero = valor is num ? valor : (num.tryParse(valor.toString()) ?? 0);
+    final int entero = numero.round();
+    final String str = entero.abs().toString();
+    final StringBuffer buffer = StringBuffer();
+
+    for (int i = 0; i < str.length; i++) {
+      if (i > 0 && (str.length - i) % 3 == 0) {
+        buffer.write('.');
+      }
+      buffer.write(str[i]);
+    }
+    return '${entero < 0 ? '-' : ''}\$${buffer.toString()}';
+  }
+
+  String _formatearFechaCorta(dynamic raw) {
+    final dt = _obtenerFechaViaje({'fecha_viaje': raw});
+    if (dt == null) return '—';
+    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+  }
+
+  String _formatearTimestamp(dynamic raw) {
+    final str = raw?.toString().trim() ?? '';
+    if (str.isEmpty || str.toLowerCase() == 'null') return 'No registrado';
+    final dt = DateTime.tryParse(str);
+    if (dt == null) return str;
+    final d = dt.toLocal();
+    return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year} '
+        '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatearHoraSimple(dynamic raw) {
+    final str = raw?.toString().trim() ?? '';
+    if (str.isEmpty || str.toLowerCase() == 'null') return '—';
+    if (str.length >= 5) return str.substring(0, 5);
+    return str;
+  }
+
+  String _valorTexto(dynamic raw, [String fallback = '—']) {
+    final str = raw?.toString().trim() ?? '';
+    if (str.isEmpty || str.toLowerCase() == 'null') return fallback;
+    return str;
+  }
+
+  /// Modal completo con todos los campos de la tabla viajes (excluyendo creado_en)
+  void _abrirModalDetalleViaje(dynamic item) {
+    final datosResueltos = _extraerDatosFilaViaje(item);
+
+    final String estadoRaw = datosResueltos['estado']!.toLowerCase();
+    Color colorEstado = AppColors.warning;
+    String textoEstado = 'Pendiente';
+    if (estadoRaw == 'en_curso' || estadoRaw == 'en ruta') {
+      colorEstado = Colors.green;
+      textoEstado = 'En Ruta';
+    } else if (estadoRaw == 'retrasado') {
+      colorEstado = Colors.red;
+      textoEstado = 'Retrasado';
+    } else if (estadoRaw == 'completado') {
+      colorEstado = Colors.grey;
+      textoEstado = 'Completado';
+    }
+
+    final String latInicio = _valorTexto(item['lat_inicio'], '');
+    final String lngInicio = _valorTexto(item['lng_inicio'], '');
+    final String coordsInicio = (latInicio.isNotEmpty && lngInicio.isNotEmpty)
+        ? '$latInicio, $lngInicio'
+        : 'No registradas';
+
+    final String latFin = _valorTexto(item['lat_fin'], '');
+    final String lngFin = _valorTexto(item['lng_fin'], '');
+    final String coordsFin = (latFin.isNotEmpty && lngFin.isNotEmpty)
+        ? '$latFin, $lngFin'
+        : 'No registradas';
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final screenWidth = MediaQuery.of(ctx).size.width;
+        final isCompact = screenWidth < 650;
+
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: Colors.white,
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: isCompact ? 12 : 24,
+            vertical: 20,
+          ),
+          child: Container(
+            width: 680,
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.90,
+            ),
+            padding: EdgeInsets.all(isCompact ? 16 : 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Cabecera
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(9),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.local_shipping_outlined, color: AppColors.primary, size: 22),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      'Viaje ${datosResueltos['id']}',
+                                      style: const TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: colorEstado.withOpacity(0.12),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        textoEstado,
+                                        style: TextStyle(
+                                          color: colorEstado,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Fecha programada: ${_formatearFechaCorta(item['fecha_viaje'])}',
+                                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: AppColors.textSecondary, size: 20),
+                      tooltip: 'Cerrar',
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                const Divider(height: 1, color: AppColors.border),
+                const SizedBox(height: 14),
+
+                // Cuerpo deslizable
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 1. Asignación y Ruta
+                        _buildTituloSeccionModal('ASIGNACIÓN Y RUTA'),
+                        _buildCajaSeccionModal([
+                          _buildFilaModal('ID Viaje', datosResueltos['id']!),
+                          _buildFilaModal('Conductor', datosResueltos['conductor']!),
+                          _buildFilaModal('Patente Camión', datosResueltos['camion']!),
+                          _buildFilaModal('Cliente', datosResueltos['cliente']!),
+                          _buildFilaModal('Consignatario', datosResueltos['consignatario']!),
+                          _buildFilaModal('Región', datosResueltos['region']!),
+                          _buildFilaModal('Fecha Viaje', _formatearFechaCorta(item['fecha_viaje']), ultima: true),
+                        ]),
+
+                        const SizedBox(height: 16),
+
+                        // 2. Carga, Guías y Horarios
+                        _buildTituloSeccionModal('CARGA, GUÍAS Y HORARIOS'),
+                        _buildCajaSeccionModal([
+                          _buildFilaModal('Número de Guía', _valorTexto(item['numero_guia'])),
+                          _buildFilaModal('Guía Petróleo', _valorTexto(item['guia_petroleo'])),
+                          _buildFilaModal('Pallets', _valorTexto(item['pallets'], '0')),
+                          _buildFilaModal('Hora de Carga', _formatearHoraSimple(item['hora_carga'])),
+                          _buildFilaModal('Hora de Descarga', _formatearHoraSimple(item['hora_descarga'])),
+                          _buildFilaModal('Iniciado en', _formatearTimestamp(item['iniciado_en'])),
+                          _buildFilaModal('Finalizado en', _formatearTimestamp(item['finalizado_en']), ultima: true),
+                        ]),
+
+                        const SizedBox(height: 16),
+
+                        // 3. Horas Adicionales y Montos
+                        _buildTituloSeccionModal('HORAS ADICIONALES Y MONTOS'),
+                        _buildCajaSeccionModal([
+                          _buildFilaModal('Horas Nocturnas', _valorTexto(item['horas_nocturnas'], '0')),
+                          _buildFilaModal('Horas Sábado', _valorTexto(item['horas_sabado'], '0')),
+                          _buildFilaModal('Monto TAG', _formatearClp(item['monto_tag'])),
+                          _buildFilaModal('Monto Peonetas', _formatearClp(item['monto_peonetas']), ultima: true),
+                        ]),
+
+                        const SizedBox(height: 16),
+
+                        // 4. Coordenadas GPS
+                        _buildTituloSeccionModal('GEOLOCALIZACIÓN'),
+                        _buildCajaSeccionModal([
+                          _buildFilaModal('Latitud / Longitud Inicio', coordsInicio),
+                          _buildFilaModal('Latitud / Longitud Fin', coordsFin, ultima: true),
+                        ]),
+
+                        const SizedBox(height: 16),
+
+                        // 5. Observaciones
+                        _buildTituloSeccionModal('OBSERVACIONES'),
+                        _buildCajaSeccionModal([
+                          _buildFilaModal(
+                            'Observaciones Admin',
+                            _valorTexto(item['observaciones_admin'], 'Sin observaciones'),
+                          ),
+                          _buildFilaModal(
+                            'Observaciones Conductor',
+                            _valorTexto(item['observaciones_conductor'], 'Sin observaciones'),
+                            ultima: true,
+                          ),
+                        ]),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTituloSeccionModal(String titulo) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Text(
+        titulo,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: AppColors.primary,
+          letterSpacing: 0.6,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCajaSeccionModal(List<Widget> hijos) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: hijos,
+      ),
+    );
+  }
+
+  Widget _buildFilaModal(String etiqueta, String valor, {bool ultima = false}) {
+    return Column(
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 170,
+              child: Text(
+                etiqueta,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                valor,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (!ultima) const Divider(height: 16, color: AppColors.border),
+      ],
+    );
   }
 
   String _formatearTiempoRelativo(String? timestampStr) {
@@ -838,8 +1283,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobileKpis = screenWidth < 780;
     final bool isStackedMiddle = screenWidth < 1150;
-    // La tabla de 7 columnas requiere scroll horizontal en pantallas divididas o móviles (< 1380px) para que nunca se corte la columna ESTADO
-    final bool useHorizontalTableScroll = screenWidth < 1380;
+    final bool useHorizontalTableScroll = screenWidth < 1460;
     final bool isSmallMobile = screenWidth < 750;
 
     return AdminShell(
@@ -847,30 +1291,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       title: 'Panel de Control',
       subtitle: 'Resumen de Operaciones',
       showBackButton: false,
-      actions: [
-        if (!isSmallMobile)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceMuted,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.search, size: 16, color: AppColors.textSecondary),
-                SizedBox(width: 8),
-                Text('Buscar viajes, rutas...', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-              ],
-            ),
-          )
-        else
-          IconButton(
-            icon: const Icon(Icons.search, color: AppColors.textSecondary),
-            tooltip: 'Buscar',
-            onPressed: () {},
-          ),
-      ],
       child: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
           : SingleChildScrollView(
@@ -903,6 +1323,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   const SizedBox(height: 32),
                   const Text('Actividad Reciente de Flota', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
+                  _buildBarraFiltrosTabla(isSmallMobile),
+                  const SizedBox(height: 14),
                   _buildTablaActividadOriginal(useHorizontalTableScroll),
                 ],
               ),
@@ -1464,9 +1886,151 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  /// Tabla de Actividad Reciente con 7 columnas y scroll horizontal visible en ventana dividida / móvil
+  /// Barra de búsqueda (conductor, patente, cliente, consignatario) + filtro calendario + filtro estado
+  Widget _buildBarraFiltrosTabla(bool isSmallMobile) {
+    final bool filtroEstadoActivo = _estadoFiltro != 'todos';
+
+    final Widget campoBusqueda = SizedBox(
+      height: 42,
+      child: TextField(
+        controller: _busquedaViajesCtrl,
+        onChanged: (_) => setState(() {}),
+        style: const TextStyle(fontSize: 13),
+        decoration: InputDecoration(
+          hintText: isSmallMobile
+              ? 'Buscar conductor, patente, cliente...'
+              : 'Buscar por conductor, patente, cliente o consignatario...',
+          hintStyle: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+          prefixIcon: const Icon(Icons.search, size: 18, color: AppColors.textSecondary),
+          suffixIcon: _busquedaViajesCtrl.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 16, color: AppColors.textSecondary),
+                  onPressed: () {
+                    _busquedaViajesCtrl.clear();
+                    setState(() {});
+                  },
+                )
+              : null,
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppColors.border),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppColors.border),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+          ),
+        ),
+      ),
+    );
+
+    final Widget botonCalendario = OutlinedButton.icon(
+      onPressed: _seleccionarFechaTabla,
+      icon: const Icon(Icons.calendar_today_outlined, size: 15, color: AppColors.primary),
+      label: Text(
+        _rotuloFechaTabla,
+        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+      ),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: Colors.white,
+        side: const BorderSide(color: AppColors.border),
+        minimumSize: const Size(0, 42),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+
+    final Widget botonEstado = OutlinedButton.icon(
+      onPressed: _abrirFiltroEstadoViajes,
+      icon: Icon(
+        Icons.filter_list,
+        size: 16,
+        color: filtroEstadoActivo ? AppColors.primary : AppColors.textSecondary,
+      ),
+      label: Text(
+        _rotuloEstadoTabla,
+        style: TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          color: filtroEstadoActivo ? AppColors.primary : AppColors.textPrimary,
+        ),
+      ),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: filtroEstadoActivo ? AppColors.primary.withOpacity(0.08) : Colors.white,
+        side: BorderSide(color: filtroEstadoActivo ? AppColors.primary : AppColors.border),
+        minimumSize: const Size(0, 42),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+
+    if (isSmallMobile) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          campoBusqueda,
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              botonCalendario,
+              botonEstado,
+            ],
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(child: campoBusqueda),
+        const SizedBox(width: 12),
+        botonCalendario,
+        const SizedBox(width: 10),
+        botonEstado,
+      ],
+    );
+  }
+
+  /// Tabla de Actividad Reciente con 8 columnas (incluye Ver Detalles) y scroll horizontal en pantallas divididas / móviles
   Widget _buildTablaActividadOriginal(bool useHorizontalScroll) {
     final filas = _filasAMostrar;
+
+    if (filas.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          children: [
+            const Icon(Icons.local_shipping_outlined, size: 36, color: Color(0xFF94A3B8)),
+            const SizedBox(height: 10),
+            Text(
+              'No hay viajes registrados para $_rotuloFechaTabla',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Prueba seleccionando otra fecha en el calendario o limpiando los filtros aplicados.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Container(
       width: double.infinity,
@@ -1483,7 +2047,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 controller: _tablaScrollController,
                 scrollDirection: Axis.horizontal,
                 child: SizedBox(
-                  width: 1120,
+                  width: 1260,
                   child: Column(
                     children: [
                       _buildEncabezadoActividadMovil(),
@@ -1515,7 +2079,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  // --- SCROLL LATERAL / PANTALLA DIVIDIDA / MÓVIL (7 COLUMNAS) ---
+  // --- SCROLL LATERAL / PANTALLA DIVIDIDA / MÓVIL (8 COLUMNAS) ---
   Widget _buildEncabezadoActividadMovil() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -1537,7 +2101,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           SizedBox(width: 14),
           SizedBox(width: 145, child: Text('REGIÓN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
           SizedBox(width: 14),
-          SizedBox(width: 110, child: Text('ESTADO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 105, child: Text('ESTADO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 14),
+          SizedBox(width: 125, child: Text('ACCIÓN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
         ],
       ),
     );
@@ -1634,7 +2200,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           ),
           const SizedBox(width: 14),
           SizedBox(
-            width: 110,
+            width: 105,
             child: Align(
               alignment: Alignment.centerLeft,
               child: Container(
@@ -1650,12 +2216,31 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               ),
             ),
           ),
+          const SizedBox(width: 14),
+          SizedBox(
+            width: 125,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => _abrirModalDetalleViaje(item),
+                icon: const Icon(Icons.visibility_outlined, size: 14, color: AppColors.primary),
+                label: const Text('Ver Detalles', style: TextStyle(fontSize: 11.5, color: AppColors.primary, fontWeight: FontWeight.bold)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  side: const BorderSide(color: AppColors.primary),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  // --- PC PANTALLA COMPLETA (7 COLUMNAS) ---
+  // --- PC PANTALLA COMPLETA (8 COLUMNAS) ---
   Widget _buildEncabezadoActividadPC() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
@@ -1678,6 +2263,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           Expanded(flex: 3, child: Text('REGIÓN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
           SizedBox(width: 12),
           Expanded(flex: 2, child: Text('ESTADO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 12),
+          Expanded(flex: 2, child: Text('ACCIÓN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
         ],
       ),
     );
@@ -1786,6 +2373,25 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 child: Text(
                   textoEstado,
                   style: TextStyle(color: colorEstado, fontWeight: FontWeight.bold, fontSize: 11),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => _abrirModalDetalleViaje(item),
+                icon: const Icon(Icons.visibility_outlined, size: 14, color: AppColors.primary),
+                label: const Text('Ver Detalles', style: TextStyle(fontSize: 11.5, color: AppColors.primary, fontWeight: FontWeight.bold)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  side: const BorderSide(color: AppColors.primary),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                 ),
               ),
             ),
