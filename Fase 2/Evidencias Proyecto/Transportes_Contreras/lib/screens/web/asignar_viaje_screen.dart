@@ -315,7 +315,7 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildHero(esPantallaPequena),
+                  _buildHero(),
                   const SizedBox(height: 20),
                   if (_errorOpciones != null) ...[
                     _buildErrorOpciones(),
@@ -339,26 +339,7 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
     );
   }
 
-  Widget _buildHero(bool esPantallaPequena) {
-    final badgeSistema = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: AppColors.success.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.circle, size: 7, color: Color(0xFF4ADE80)),
-          SizedBox(width: 6),
-          Text(
-            'SISTEMA OPERATIVO',
-            style: TextStyle(color: Color(0xFF4ADE80), fontWeight: FontWeight.w700, fontSize: 10.5),
-          ),
-        ],
-      ),
-    );
-
+  Widget _buildHero() {
     return Container(
       width: double.infinity,
       clipBehavior: Clip.antiAlias,
@@ -382,53 +363,25 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (!esPantallaPequena)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.business_center_outlined, size: 12, color: Colors.white),
-                            SizedBox(width: 5),
-                            Text(
-                              'OPERACIONES LOGÍSTICAS',
-                              style: TextStyle(
-                                  color: Colors.white, fontWeight: FontWeight.w800, fontSize: 10, letterSpacing: 0.4),
-                            ),
-                          ],
-                        ),
-                      ),
-                      badgeSistema,
-                    ],
-                  )
-                else
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.business_center_outlined, size: 12, color: Colors.white),
-                        SizedBox(width: 5),
-                        Text(
-                          'OPERACIONES LOGÍSTICAS',
-                          style: TextStyle(
-                              color: Colors.white, fontWeight: FontWeight.w800, fontSize: 10, letterSpacing: 0.4),
-                        ),
-                      ],
-                    ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(20),
                   ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.business_center_outlined, size: 12, color: Colors.white),
+                      SizedBox(width: 5),
+                      Text(
+                        'OPERACIONES LOGÍSTICAS',
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w800, fontSize: 10, letterSpacing: 0.4),
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 12),
                 RichText(
                   text: const TextSpan(
@@ -445,13 +398,6 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
                   'calificado para la ejecución del servicio.',
                   style: TextStyle(color: Colors.white70, fontSize: 13.5, height: 1.4),
                 ),
-                if (esPantallaPequena) ...[
-                  const SizedBox(height: 18),
-                  Align(
-                    alignment: Alignment.bottomRight,
-                    child: badgeSistema,
-                  ),
-                ],
               ],
             ),
           ),
@@ -633,7 +579,6 @@ class _AsignarViajeScreenState extends State<AsignarViajeScreen> {
           else ...[
             campoFecha,
             const SizedBox(height: 16),
-            // Horas de carga y descarga juntas en la misma fila en celular
             Row(
               children: [
                 Expanded(child: campoHoraCarga),

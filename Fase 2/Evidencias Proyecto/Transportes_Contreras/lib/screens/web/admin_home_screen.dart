@@ -27,6 +27,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Map<String, dynamic>? _ultimoIncidente;
   List<dynamic> _viajesRecientes = [];
 
+  // Mapas de búsqueda rápida por ID / RUT para resolver nombres y patentes con 100% de certeza
+  Map<String, String> _mapaConductores = {};
+  Map<String, String> _mapaCamiones = {};
+  Map<String, String> _mapaConsignatarios = {};
+  Map<String, String> _mapaRegiones = {};
+
+  final ScrollController _tablaScrollController = ScrollController();
+
   final Color _redAccidentColor = const Color(0xFFDC2626);
   final Color _yellowMechColor = const Color(0xFFD97706);
   final Color _orangeDelayColor = const Color(0xFFEA580C);
@@ -40,47 +48,92 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     _cargarMetricas();
   }
 
+  @override
+  void dispose() {
+    _tablaScrollController.dispose();
+    super.dispose();
+  }
+
   Future<void> _cargarMetricas() async {
     try {
       final supabase = Supabase.instance.client;
 
-      final int conductoresCount = await supabase
-          .from('conductores')
-          .count(CountOption.exact);
+      // Ejecutar consultas principales y catálogos en paralelo
+      final results = await Future.wait([
+        supabase.from('conductores').count(CountOption.exact),
+        supabase.from('viajes').count(CountOption.exact).eq('estado', 'en_curso'),
+        supabase.from('viajes').count(CountOption.exact).eq('estado', 'pendiente'),
+        supabase.from('incidentes').count(CountOption.exact).catchError((_) => 0),
+        supabase
+            .from('incidentes')
+            .select('id, conductor_rut, tipo_incidente, gravedad, descripcion, latitud, longitud, url_evidencia_fotografica, reportado_en, conductores(nombre_completo, telefono)')
+            .order('reportado_en', ascending: false)
+            .limit(1)
+            .catchError((_) => <dynamic>[]),
+        // Viajes ordenados por iniciado_en descendente
+        supabase
+            .from('viajes')
+            .select('*, clientes(nombre_empresa)')
+            .order('iniciado_en', ascending: false, nullsFirst: false)
+            .limit(5)
+            .catchError((_) => <dynamic>[]),
+        // Catálogos para cruzar IDs con nombres/patentes
+        supabase.from('conductores').select('*').catchError((_) => <dynamic>[]),
+        supabase.from('camiones').select('*').catchError((_) => <dynamic>[]),
+        supabase.from('consignatarios').select('*').catchError((_) => <dynamic>[]),
+        supabase.from('regiones').select('*').catchError((_) => <dynamic>[]),
+      ]);
 
-      final int activosCount = await supabase
-          .from('viajes')
-          .count(CountOption.exact)
-          .eq('estado', 'en_curso');
+      final int conductoresCount = results[0] as int;
+      final int activosCount = results[1] as int;
+      final int pendientesCount = results[2] as int;
+      final int totalIncidentes = results[3] as int;
+      final List<dynamic> incidentesData = results[4] as List<dynamic>;
+      final List<dynamic> viajesData = results[5] as List<dynamic>;
 
-      final int pendientesCount = await supabase
-          .from('viajes')
-          .count(CountOption.exact)
-          .eq('estado', 'pendiente');
+      final List<dynamic> listaConductores = results[6] as List<dynamic>;
+      final List<dynamic> listaCamiones = results[7] as List<dynamic>;
+      final List<dynamic> listaConsignatarios = results[8] as List<dynamic>;
+      final List<dynamic> listaRegiones = results[9] as List<dynamic>;
 
-      final int totalIncidentes = await supabase
-          .from('incidentes')
-          .count(CountOption.exact)
-          .catchError((_) => 0);
+      // Construir mapas de resolución por ID y RUT
+      final Map<String, String> mapCond = {};
+      for (final c in listaConductores) {
+        final nombre = (c['nombre_completo'] ?? c['nombre'] ?? '').toString().trim();
+        if (nombre.isNotEmpty) {
+          if (c['id'] != null) mapCond[c['id'].toString()] = nombre;
+          if (c['rut'] != null) mapCond[c['rut'].toString()] = nombre;
+        }
+      }
 
-      final List<dynamic> incidentesData = await supabase
-          .from('incidentes')
-          .select('id, conductor_rut, tipo_incidente, gravedad, descripcion, latitud, longitud, reportado_en, conductores(nombre_completo, telefono)')
-          .order('reportado_en', ascending: false)
-          .limit(1)
-          .catchError((_) => []);
+      final Map<String, String> mapCam = {};
+      for (final cam in listaCamiones) {
+        final patente = (cam['patente'] ?? cam['placa'] ?? '').toString().trim().toUpperCase();
+        if (patente.isNotEmpty && cam['id'] != null) {
+          mapCam[cam['id'].toString()] = patente;
+        }
+      }
+
+      final Map<String, String> mapCons = {};
+      for (final cons in listaConsignatarios) {
+        final nombre = (cons['nombre'] ?? cons['nombre_empresa'] ?? cons['razon_social'] ?? '').toString().trim();
+        if (nombre.isNotEmpty && cons['id'] != null) {
+          mapCons[cons['id'].toString()] = nombre;
+        }
+      }
+
+      final Map<String, String> mapReg = {};
+      for (final reg in listaRegiones) {
+        final nombre = (reg['nombre'] ?? reg['region'] ?? '').toString().trim();
+        if (nombre.isNotEmpty && reg['id'] != null) {
+          mapReg[reg['id'].toString()] = nombre;
+        }
+      }
 
       Map<String, dynamic>? ultimoIncidente;
       if (incidentesData.isNotEmpty) {
         ultimoIncidente = incidentesData.first as Map<String, dynamic>;
       }
-
-      final viajesData = await supabase
-          .from('viajes')
-          .select('id, estado, fecha_viaje, conductor_rut, clientes(nombre_empresa)')
-          .order('fecha_viaje', ascending: false)
-          .limit(5)
-          .catchError((_) => []);
 
       if (mounted) {
         setState(() {
@@ -89,7 +142,11 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           _cargasPendientesCount = pendientesCount;
           _alertasCount = totalIncidentes;
           _ultimoIncidente = ultimoIncidente;
-          _viajesRecientes = viajesData as List<dynamic>;
+          _viajesRecientes = viajesData;
+          _mapaConductores = mapCond;
+          _mapaCamiones = mapCam;
+          _mapaConsignatarios = mapCons;
+          _mapaRegiones = mapReg;
           _isLoading = false;
         });
       }
@@ -104,10 +161,77 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       return _viajesRecientes;
     }
     return [
-      {'id': 'V-2845', 'conductor_rut': 'Marco Soto', 'ruta': 'Santiago → Valparaíso', 'estado': 'en_curso'},
-      {'id': 'V-2846', 'conductor_rut': 'Luis Rivas', 'ruta': 'Santiago → Concepción', 'estado': 'retrasado'},
-      {'id': 'V-2847', 'conductor_rut': 'Elena Paz', 'ruta': 'Rancagua → Santiago', 'estado': 'completado'},
+      {
+        'id': 'V-2845',
+        'conductor_nombre': 'Marco Soto',
+        'camion_patente': 'KJ-LP-42',
+        'clientes': {'nombre_empresa': 'Falabella'},
+        'consignatario_nombre': 'Centro Distribución Pudahuel',
+        'region': 'Metropolitana',
+        'estado': 'en_curso',
+      },
+      {
+        'id': 'V-2846',
+        'conductor_nombre': 'Luis Rivas',
+        'camion_patente': 'RT-GH-88',
+        'clientes': {'nombre_empresa': 'Samsung'},
+        'consignatario_nombre': 'Bodega Central Concepción',
+        'region': 'Biobío',
+        'estado': 'retrasado',
+      },
+      {
+        'id': 'V-2847',
+        'conductor_nombre': 'Elena Paz',
+        'camion_patente': 'PL-MN-19',
+        'clientes': {'nombre_empresa': 'Paris'},
+        'consignatario_nombre': 'Tienda Mall Plaza',
+        'region': 'Valparaíso',
+        'estado': 'completado',
+      },
     ];
+  }
+
+  /// Extrae los valores resueltos de cada fila de viaje
+  Map<String, String> _extraerDatosFilaViaje(dynamic item) {
+    final String idCorto = _formatearId(item['id'].toString());
+
+    // 1. Conductor (busca por conductor_id o conductor_rut en el mapa cargado)
+    final String rawCondId = (item['conductor_id'] ?? '').toString();
+    final String rawCondRut = (item['conductor_rut'] ?? '').toString();
+    final String conductor = _mapaConductores[rawCondId] ??
+        _mapaConductores[rawCondRut] ??
+        (item['conductor_nombre'] ?? (rawCondRut.isNotEmpty ? rawCondRut : 'Sin asignar')).toString();
+
+    // 2. Camión (busca por camion_id en el mapa de patentes)
+    final String rawCamId = (item['camion_id'] ?? item['id_camion'] ?? '').toString();
+    final String camion = _mapaCamiones[rawCamId] ??
+        (item['camion_patente'] ?? item['patente'] ?? 'Por asignar').toString().toUpperCase();
+
+    // 3. Cliente
+    final String cliente = (item['clientes']?['nombre_empresa'] ??
+            item['cliente_nombre'] ??
+            'Sin cliente')
+        .toString();
+
+    // 4. Consignatario (busca por consignatario_id)
+    final String rawConsId = (item['consignatario_id'] ?? item['id_consignatario'] ?? '').toString();
+    final String consignatario = _mapaConsignatarios[rawConsId] ??
+        (item['consignatario_nombre'] ?? item['consignatario'] ?? 'No especificado').toString();
+
+    // 5. Región (busca por region_id)
+    final String rawRegId = (item['region_id'] ?? item['id_region'] ?? '').toString();
+    final String region = _mapaRegiones[rawRegId] ??
+        (item['region_nombre'] ?? item['region'] ?? 'Por definir').toString();
+
+    return {
+      'id': idCorto,
+      'conductor': conductor,
+      'camion': camion,
+      'cliente': cliente,
+      'consignatario': consignatario,
+      'region': region,
+      'estado': (item['estado'] ?? 'desconocido').toString(),
+    };
   }
 
   String _formatearId(String rawId) {
@@ -160,10 +284,28 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
     if (telefono.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('El conductor no registra un número telefónico en su ficha.'),
-            backgroundColor: Colors.orange,
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            title: const Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.orange, size: 22),
+                SizedBox(width: 10),
+                Expanded(child: Text('Sin teléfono registrado', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold))),
+              ],
+            ),
+            content: const Text(
+              'El conductor no registra un número telefónico en su ficha.',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                child: const Text('Entendido', style: TextStyle(color: Colors.white, fontSize: 12)),
+              ),
+            ],
           ),
         );
       }
@@ -173,7 +315,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     final String soloNumeros = telefono.replaceAll(RegExp(r'[^0-9+]'), '');
     final String numeroLimpio = soloNumeros.startsWith('+') ? soloNumeros : '+56$soloNumeros';
 
-    // En app móvil nativa abre directamente el marcador del teléfono
     if (!kIsWeb) {
       final uriTel = Uri.parse('tel:$numeroLimpio');
       if (await canLaunchUrl(uriTel)) {
@@ -182,18 +323,23 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       return;
     }
 
-    // En Web: Muestra el modal con el número para copiar y opción de WhatsApp Web
     if (!mounted) return;
     showDialog(
       context: context,
       builder: (ctx) {
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Row(
-            children: const [
+          title: const Row(
+            children: [
               Icon(Icons.phone_in_talk, color: AppColors.primary, size: 22),
               SizedBox(width: 10),
-              Text('Contacto del Conductor', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              Expanded(
+                child: Text(
+                  'Contacto del Conductor',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           content: Column(
@@ -214,15 +360,19 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.phone, size: 18, color: Colors.green),
-                        const SizedBox(width: 8),
-                        SelectableText(
-                          telefono,
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                        ),
-                      ],
+                    Expanded(
+                      child: Row(
+                        children: [
+                          const Icon(Icons.phone, size: 18, color: Colors.green),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: SelectableText(
+                              telefono,
+                              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     IconButton(
                       icon: const Icon(Icons.copy, size: 18, color: AppColors.textSecondary),
@@ -245,22 +395,228 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ],
           ),
           actions: [
-            OutlinedButton.icon(
-              onPressed: () {
-                final wsUrl =
-                    'https://web.whatsapp.com/send?phone=${numeroLimpio.replaceAll('+', '')}&text=${Uri.encodeComponent('Hola $nombre, nos comunicamos desde la administración de Transportes Contreras respecto a su reporte en ruta.')}';
-                _abrirUrlExterna(wsUrl);
-                Navigator.of(ctx).pop();
-              },
-              icon: const Icon(Icons.chat, size: 16, color: Colors.green),
-              label: const Text('Abrir WhatsApp Web', style: TextStyle(color: Colors.green, fontSize: 12)),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.end,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () {
+                    final wsUrl =
+                        'https://web.whatsapp.com/send?phone=${numeroLimpio.replaceAll('+', '')}&text=${Uri.encodeComponent('Hola $nombre, nos comunicamos desde la administración de Transportes Contreras respecto a su reporte en ruta.')}';
+                    _abrirUrlExterna(wsUrl);
+                    Navigator.of(ctx).pop();
+                  },
+                  icon: const Icon(Icons.chat, size: 16, color: Colors.green),
+                  label: const Text('Abrir WhatsApp Web', style: TextStyle(color: Colors.green, fontSize: 12)),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                  child: const Text('Cerrar', style: TextStyle(color: Colors.white, fontSize: 12)),
+                ),
+              ],
             ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _abrirModalImagen({
+    required String? urlImagen,
+    required String titulo,
+    required String conductor,
+    required Color colorAlerta,
+  }) {
+    final String urlLimpia = (urlImagen ?? '').trim();
+
+    if (urlLimpia.isEmpty || urlLimpia.toLowerCase() == 'null' || !urlLimpia.startsWith('http')) {
+      showDialog(
+        context: context,
+        builder: (alertCtx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: const Row(
+            children: [
+              Icon(Icons.image_not_supported_outlined, color: AppColors.textSecondary, size: 22),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Sin fotografía adjunta',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'Este incidente no cuenta con una evidencia fotográfica adjuntada por el conductor.',
+            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+          ),
+          actions: [
             ElevatedButton(
-              onPressed: () => Navigator.of(ctx).pop(),
+              onPressed: () => Navigator.of(alertCtx).pop(),
               style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
               child: const Text('Cerrar', style: TextStyle(color: Colors.white, fontSize: 12)),
             ),
           ],
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (imgCtx) {
+        final screenWidth = MediaQuery.of(imgCtx).size.width;
+        final isMobileModal = screenWidth < 600;
+
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: Colors.white,
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: isMobileModal ? 12 : 24,
+            vertical: 24,
+          ),
+          child: Container(
+            width: 680,
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(imgCtx).size.height * 0.88,
+            ),
+            padding: EdgeInsets.all(isMobileModal ? 16 : 22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: colorAlerta.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(Icons.photo_camera_outlined, color: colorAlerta, size: 22),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Evidencia: $titulo',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Conductor: $conductor',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: AppColors.textSecondary, size: 20),
+                      tooltip: 'Cerrar Imagen',
+                      onPressed: () => Navigator.of(imgCtx).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Flexible(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(minHeight: 240),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F172A),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: InteractiveViewer(
+                        minScale: 0.8,
+                        maxScale: 4.0,
+                        child: Image.network(
+                          urlLimpia,
+                          fit: BoxFit.contain,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return SizedBox(
+                              height: 300,
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  value: loadingProgress.expectedTotalBytes != null
+                                      ? loadingProgress.cumulativeBytesLoaded /
+                                          loadingProgress.expectedTotalBytes!
+                                      : null,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) {
+                            return const SizedBox(
+                              height: 240,
+                              child: Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(20.0),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.broken_image_outlined, color: Colors.white54, size: 42),
+                                      SizedBox(height: 10),
+                                      Text(
+                                        'No se pudo cargar la imagen desde el servidor.',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(color: Colors.white70, fontSize: 13),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    const Text(
+                      'Deslice o pellizque para ampliar',
+                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _abrirUrlExterna(urlLimpia),
+                      icon: const Icon(Icons.open_in_new, size: 14),
+                      label: const Text('Abrir original', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -352,7 +708,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   ],
                 ),
                 const SizedBox(height: 14),
-
                 Expanded(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
@@ -391,9 +746,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 14),
-
                 LayoutBuilder(
                   builder: (context, constraints) {
                     final bool estrecho = constraints.maxWidth < 480;
@@ -483,7 +836,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isMobile = screenWidth < 900;
+    final bool isMobileKpis = screenWidth < 780;
+    final bool isStackedMiddle = screenWidth < 1150;
+    // La tabla de 7 columnas requiere scroll horizontal en pantallas divididas o móviles (< 1380px) para que nunca se corte la columna ESTADO
+    final bool useHorizontalTableScroll = screenWidth < 1380;
     final bool isSmallMobile = screenWidth < 750;
 
     return AdminShell(
@@ -524,9 +880,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 children: [
                   _buildHeroBanner(isSmallMobile),
                   const SizedBox(height: 24),
-                  _buildKpisSection(isMobile),
+                  _buildKpisSection(isMobileKpis),
                   const SizedBox(height: 24),
-                  if (!isMobile)
+                  if (!isStackedMiddle)
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -547,7 +903,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   const SizedBox(height: 32),
                   const Text('Actividad Reciente de Flota', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
-                  _buildTablaActividadOriginal(isSmallMobile),
+                  _buildTablaActividadOriginal(useHorizontalTableScroll),
                 ],
               ),
             ),
@@ -595,7 +951,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  Widget _buildKpisSection(bool isMobile) {
+  Widget _buildKpisSection(bool isMobileKpis) {
     final kpis = [
       _KpiData('VIAJES ACTIVOS', _viajesActivosCount.toString(), Icons.local_shipping, Colors.blue),
       _KpiData('CARGAS PENDIENTES', _cargasPendientesCount.toString(), Icons.inventory_2, AppColors.warning),
@@ -603,7 +959,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       _KpiData('INCIDENTES', _alertasCount.toString(), Icons.warning_amber_rounded, Colors.red),
     ];
 
-    if (!isMobile) {
+    if (!isMobileKpis) {
       return Row(
         children: kpis
             .map((kpi) => Expanded(
@@ -624,7 +980,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         crossAxisCount: 2,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
-        childAspectRatio: 1.8,
+        childAspectRatio: 2.2,
       ),
       itemBuilder: (context, index) {
         final kpi = kpis[index];
@@ -687,7 +1043,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Resumen Diario', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const Flexible(
+                child: Text(
+                  'Resumen Diario',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
               TextButton(onPressed: () {}, child: const Text('Ver Detalles >', style: TextStyle(color: AppColors.primary)))
             ],
           ),
@@ -769,6 +1131,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Widget _buildAlertasCriticas() {
     if (_ultimoIncidente == null) {
       return Container(
+        width: double.infinity,
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: AppColors.surface,
@@ -781,12 +1144,20 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Row(
-                  children: [
-                    Icon(Icons.warning_amber_rounded, color: Colors.grey, size: 20),
-                    SizedBox(width: 8),
-                    Text('Registro de Incidentes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  ],
+                const Expanded(
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.grey, size: 20),
+                      SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          'Registro de Incidentes',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 _recargandoIncidentes
                     ? const SizedBox(
@@ -835,6 +1206,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     final String tiempoRelativo = _formatearTiempoRelativo(_ultimoIncidente!['reportado_en']?.toString());
     final double lat = double.tryParse(_ultimoIncidente!['latitud']?.toString() ?? '') ?? -33.437514;
     final double lng = double.tryParse(_ultimoIncidente!['longitud']?.toString() ?? '') ?? -70.782836;
+    final String? urlFoto = _ultimoIncidente!['url_evidencia_fotografica']?.toString();
 
     Color colorBase = _orangeDelayColor;
     String tituloTipo = 'Retraso Operativo';
@@ -857,6 +1229,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     final bool esTextoLargo = descripcion.split('\n').length > 5 || descripcion.length > 200;
 
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -869,12 +1242,20 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Icon(Icons.warning_amber_rounded, color: colorBase, size: 20),
-                  const SizedBox(width: 8),
-                  const Text('Registro de Incidentes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                ],
+              Expanded(
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: colorBase, size: 20),
+                    const SizedBox(width: 8),
+                    const Flexible(
+                      child: Text(
+                        'Registro de Incidentes',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               _recargandoIncidentes
                   ? const SizedBox(
@@ -891,6 +1272,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           ),
           const SizedBox(height: 16),
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: colorBase.withOpacity(0.05),
@@ -902,9 +1284,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: Row(
+                      child: Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 4,
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -921,7 +1307,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
                           const Text(
                             '•',
                             style: TextStyle(
@@ -930,7 +1315,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(width: 8),
                           Text(
                             textoGravedad,
                             style: TextStyle(
@@ -942,6 +1326,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                         ],
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Text(
                       tiempoRelativo,
                       style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
@@ -996,6 +1381,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 8,
+                  runSpacing: 4,
                   children: [
                     TextButton.icon(
                       onPressed: () => _contactarConductor(conductorRut, conductorNombre),
@@ -1016,6 +1402,18 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                       icon: const Icon(Icons.map, size: 14, color: AppColors.textSecondary),
                       label: const Text('Ver Mapa', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                     ),
+                    TextButton.icon(
+                      onPressed: () {
+                        _abrirModalImagen(
+                          urlImagen: urlFoto,
+                          titulo: tituloTipo,
+                          conductor: conductorNombre,
+                          colorAlerta: colorBase,
+                        );
+                      },
+                      icon: const Icon(Icons.image_outlined, size: 14, color: AppColors.textSecondary),
+                      label: const Text('Ver Imagen', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    ),
                   ],
                 )
               ],
@@ -1033,6 +1431,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
+  /// Acciones Rápidas: solo NUEVA CARGA y REPORTES PDF
   Widget _buildAccionesRapidas(bool isSmallMobile) {
     final botones = [
       ElevatedButton.icon(
@@ -1056,51 +1455,17 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         label: const Text('REPORTES PDF', style: TextStyle(fontSize: 12)),
         style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
       ),
-      OutlinedButton.icon(
-        onPressed: () {},
-        icon: const Icon(Icons.map, size: 16),
-        label: const Text('PLANIFICAR RUTA', style: TextStyle(fontSize: 12)),
-        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
-      ),
     ];
 
-    if (!isSmallMobile) {
-      return Row(
-        children: [
-          ...botones.map((b) => Padding(padding: const EdgeInsets.only(right: 12.0), child: b)),
-          const Spacer(),
-          const Row(
-            children: [
-              Icon(Icons.check_circle, color: AppColors.success, size: 16),
-              SizedBox(width: 6),
-              Text('SISTEMA EN LÍNEA', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.bold, fontSize: 12)),
-            ],
-          )
-        ],
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: botones,
-        ),
-        const SizedBox(height: 12),
-        const Row(
-          children: [
-            Icon(Icons.check_circle, color: AppColors.success, size: 14),
-            SizedBox(width: 6),
-            Text('SISTEMA EN LÍNEA', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.bold, fontSize: 11)),
-          ],
-        )
-      ],
+    return Wrap(
+      spacing: 12,
+      runSpacing: 8,
+      children: botones,
     );
   }
 
-  Widget _buildTablaActividadOriginal(bool isSmallMobile) {
+  /// Tabla de Actividad Reciente con 7 columnas y scroll horizontal visible en ventana dividida / móvil
+  Widget _buildTablaActividadOriginal(bool useHorizontalScroll) {
     final filas = _filasAMostrar;
 
     return Container(
@@ -1110,21 +1475,26 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.border),
       ),
-      child: isSmallMobile
-          ? SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: 720,
-                child: Column(
-                  children: [
-                    _buildEncabezadoActividadMovil(),
-                    ...filas.map((item) => Column(
-                          children: [
-                            _buildFilaActividadMovil(item),
-                            const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                          ],
-                        )),
-                  ],
+      child: useHorizontalScroll
+          ? Scrollbar(
+              controller: _tablaScrollController,
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                controller: _tablaScrollController,
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: 1120,
+                  child: Column(
+                    children: [
+                      _buildEncabezadoActividadMovil(),
+                      ...filas.map((item) => Column(
+                            children: [
+                              _buildFilaActividadMovil(item),
+                              const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                            ],
+                          )),
+                    ],
+                  ),
                 ),
               ),
             )
@@ -1145,6 +1515,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
+  // --- SCROLL LATERAL / PANTALLA DIVIDIDA / MÓVIL (7 COLUMNAS) ---
   Widget _buildEncabezadoActividadMovil() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -1154,24 +1525,27 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       ),
       child: Row(
         children: const [
-          SizedBox(width: 140, child: Text('ID VIAJE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-          SizedBox(width: 20),
-          SizedBox(width: 160, child: Text('CAMIÓN / CHOFER', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-          SizedBox(width: 20),
-          SizedBox(width: 200, child: Text('RUTA', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-          SizedBox(width: 20),
-          SizedBox(width: 120, child: Text('ESTADO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
+          SizedBox(width: 105, child: Text('ID VIAJE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 14),
+          SizedBox(width: 180, child: Text('CONDUCTOR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 14),
+          SizedBox(width: 105, child: Text('CAMIÓN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 14),
+          SizedBox(width: 150, child: Text('CLIENTE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 14),
+          SizedBox(width: 185, child: Text('CONSIGNATARIO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 14),
+          SizedBox(width: 145, child: Text('REGIÓN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 14),
+          SizedBox(width: 110, child: Text('ESTADO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
         ],
       ),
     );
   }
 
   Widget _buildFilaActividadMovil(dynamic item) {
-    final String rawId = item['id'].toString();
-    final String idCorto = _formatearId(rawId);
-    final String chofer = (item['conductor_rut'] ?? 'Sin asignar').toString();
-    final String ruta = (item['clientes']?['nombre_empresa'] ?? item['ruta'] ?? 'Destino Pendiente').toString();
-    final String estadoStr = (item['estado'] ?? 'desconocido').toString();
+    final datos = _extraerDatosFilaViaje(item);
+    final String estadoStr = datos['estado']!;
 
     Color colorEstado;
     String textoEstado;
@@ -1200,37 +1574,67 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       child: Row(
         children: [
           SizedBox(
-            width: 140,
+            width: 105,
             child: Text(
-              idCorto,
+              datos['id']!,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary, fontSize: 13),
             ),
           ),
-          const SizedBox(width: 20),
+          const SizedBox(width: 14),
           SizedBox(
-            width: 160,
+            width: 180,
             child: Text(
-              chofer,
+              datos['conductor']!,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w500),
             ),
           ),
-          const SizedBox(width: 20),
+          const SizedBox(width: 14),
           SizedBox(
-            width: 200,
+            width: 105,
             child: Text(
-              ruta,
+              datos['camion']!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12.5, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(width: 14),
+          SizedBox(
+            width: 150,
+            child: Text(
+              datos['cliente']!,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
             ),
           ),
-          const SizedBox(width: 20),
+          const SizedBox(width: 14),
           SizedBox(
-            width: 120,
+            width: 185,
+            child: Text(
+              datos['consignatario']!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+            ),
+          ),
+          const SizedBox(width: 14),
+          SizedBox(
+            width: 145,
+            child: Text(
+              datos['region']!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+            ),
+          ),
+          const SizedBox(width: 14),
+          SizedBox(
+            width: 110,
             child: Align(
               alignment: Alignment.centerLeft,
               child: Container(
@@ -1251,6 +1655,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
+  // --- PC PANTALLA COMPLETA (7 COLUMNAS) ---
   Widget _buildEncabezadoActividadPC() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
@@ -1260,24 +1665,27 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       ),
       child: Row(
         children: const [
-          Expanded(flex: 2, child: Text('ID VIAJE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-          SizedBox(width: 16),
-          Expanded(flex: 3, child: Text('CAMIÓN / CHOFER', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-          SizedBox(width: 16),
-          Expanded(flex: 4, child: Text('RUTA', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-          SizedBox(width: 16),
-          Expanded(flex: 2, child: Text('ESTADO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
+          Expanded(flex: 2, child: Text('ID VIAJE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 12),
+          Expanded(flex: 3, child: Text('CONDUCTOR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 12),
+          Expanded(flex: 2, child: Text('CAMIÓN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 12),
+          Expanded(flex: 3, child: Text('CLIENTE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 12),
+          Expanded(flex: 3, child: Text('CONSIGNATARIO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 12),
+          Expanded(flex: 3, child: Text('REGIÓN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
+          SizedBox(width: 12),
+          Expanded(flex: 2, child: Text('ESTADO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textSecondary))),
         ],
       ),
     );
   }
 
   Widget _buildFilaActividadPC(dynamic item) {
-    final String rawId = item['id'].toString();
-    final String idCorto = _formatearId(rawId);
-    final String chofer = (item['conductor_rut'] ?? 'Sin asignar').toString();
-    final String ruta = (item['clientes']?['nombre_empresa'] ?? item['ruta'] ?? 'Destino Pendiente').toString();
-    final String estadoStr = (item['estado'] ?? 'desconocido').toString();
+    final datos = _extraerDatosFilaViaje(item);
+    final String estadoStr = datos['estado']!;
 
     Color colorEstado;
     String textoEstado;
@@ -1308,33 +1716,63 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           Expanded(
             flex: 2,
             child: Text(
-              idCorto,
+              datos['id']!,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary, fontSize: 13),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           Expanded(
             flex: 3,
             child: Text(
-              chofer,
+              datos['conductor']!,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w500),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           Expanded(
-            flex: 4,
+            flex: 2,
             child: Text(
-              ruta,
+              datos['camion']!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12.5, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 3,
+            child: Text(
+              datos['cliente']!,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 3,
+            child: Text(
+              datos['consignatario']!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 3,
+            child: Text(
+              datos['region']!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+            ),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             flex: 2,
             child: Align(
@@ -1361,35 +1799,47 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     showDialog(
       context: context,
       builder: (dialogCtx) {
+        final screenWidth = MediaQuery.of(dialogCtx).size.width;
+        final isCompact = screenWidth < 600;
+
         return Dialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           backgroundColor: Colors.white,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: isCompact ? 12 : 24,
+            vertical: 24,
+          ),
           child: Container(
             width: 650,
             constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.82,
+              maxHeight: MediaQuery.of(dialogCtx).size.height * 0.84,
             ),
-            padding: const EdgeInsets.all(24),
+            padding: EdgeInsets.all(isCompact ? 16 : 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: const [
-                        Icon(Icons.history_rounded, color: AppColors.primary, size: 22),
-                        SizedBox(width: 10),
-                        Text(
-                          'Historial de Alertas e Incidentes',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary,
+                    Expanded(
+                      child: Row(
+                        children: const [
+                          Icon(Icons.history_rounded, color: AppColors.primary, size: 22),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Historial de Incidentes',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     IconButton(
                       icon: const Icon(Icons.close, color: AppColors.textSecondary, size: 20),
@@ -1410,7 +1860,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   child: FutureBuilder<List<dynamic>>(
                     future: Supabase.instance.client
                         .from('incidentes')
-                        .select('id, conductor_rut, tipo_incidente, gravedad, descripcion, latitud, longitud, reportado_en, conductores(nombre_completo, telefono)')
+                        .select('id, conductor_rut, tipo_incidente, gravedad, descripcion, latitud, longitud, url_evidencia_fotografica, reportado_en, conductores(nombre_completo, telefono)')
                         .order('reportado_en', ascending: false),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
@@ -1467,6 +1917,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     final String tiempoRelativo = _formatearTiempoRelativo(item['reportado_en']?.toString());
     final double lat = double.tryParse(item['latitud']?.toString() ?? '') ?? -33.437514;
     final double lng = double.tryParse(item['longitud']?.toString() ?? '') ?? -70.782836;
+    final String? urlFoto = item['url_evidencia_fotografica']?.toString();
 
     Color colorBase = _orangeDelayColor;
     String tituloTipo = 'Retraso Operativo';
@@ -1487,6 +1938,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     }
 
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: colorBase.withOpacity(0.05),
@@ -1498,9 +1950,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Row(
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 4,
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -1517,7 +1973,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
                     const Text(
                       '•',
                       style: TextStyle(
@@ -1526,7 +1981,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(width: 8),
                     Text(
                       textoGravedad,
                       style: TextStyle(
@@ -1538,6 +1992,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
               Text(
                 tiempoRelativo,
                 style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
@@ -1557,6 +2012,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
+            runSpacing: 4,
             children: [
               TextButton.icon(
                 onPressed: () => _contactarConductor(conductorRut, conductorNombre),
@@ -1577,6 +2033,18 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 icon: const Icon(Icons.map, size: 14, color: AppColors.textSecondary),
                 label: const Text('Ver Mapa', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
               ),
+              TextButton.icon(
+                onPressed: () {
+                  _abrirModalImagen(
+                    urlImagen: urlFoto,
+                    titulo: tituloTipo,
+                    conductor: conductorNombre,
+                    colorAlerta: colorBase,
+                  );
+                },
+                icon: const Icon(Icons.image_outlined, size: 14, color: AppColors.textSecondary),
+                label: const Text('Ver Imagen', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              ),
             ],
           )
         ],
@@ -1596,7 +2064,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
       final List<dynamic> incidentesData = await supabase
           .from('incidentes')
-          .select('id, conductor_rut, tipo_incidente, gravedad, descripcion, latitud, longitud, reportado_en, conductores(nombre_completo, telefono)')
+          .select('id, conductor_rut, tipo_incidente, gravedad, descripcion, latitud, longitud, url_evidencia_fotografica, reportado_en, conductores(nombre_completo, telefono)')
           .order('reportado_en', ascending: false)
           .limit(1)
           .catchError((_) => []);
