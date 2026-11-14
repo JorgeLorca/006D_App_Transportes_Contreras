@@ -24,7 +24,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 5, // Versión 5: agrega tabla incidentes Offline-First
+      version: 6, // Versión 6: todos los campos de viajes (peonetas, GPS inicio/fin) y catálogos completos
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -53,7 +53,8 @@ class DatabaseHelper {
         nombre_contacto TEXT,
         telefono TEXT,
         direccion TEXT,
-        region_id TEXT
+        region_id TEXT,
+        comuna_id TEXT
       )
     ''');
 
@@ -62,7 +63,8 @@ class DatabaseHelper {
         id TEXT PRIMARY KEY,
         nombre_empresa TEXT NOT NULL,
         direccion TEXT,
-        region_id TEXT
+        region_id TEXT,
+        comuna_id TEXT
       )
     ''');
 
@@ -98,6 +100,11 @@ class DatabaseHelper {
         estado TEXT DEFAULT 'pendiente',
         iniciado_en TEXT,
         finalizado_en TEXT,
+        lat_inicio REAL,
+        lng_inicio REAL,
+        lat_fin REAL,
+        lng_fin REAL,
+        creado_en TEXT,
         hora_carga TEXT,
         hora_descarga TEXT,
         is_synced INTEGER DEFAULT 1,
@@ -128,6 +135,23 @@ class DatabaseHelper {
     }
     if (oldVersion < 5) {
       await _crearTablaIncidentes(db);
+    }
+    if (oldVersion < 6) {
+      final nuevasColumnasViajes = [
+        "ALTER TABLE viajes ADD COLUMN monto_peonetas INTEGER DEFAULT 0",
+        "ALTER TABLE viajes ADD COLUMN lat_inicio REAL",
+        "ALTER TABLE viajes ADD COLUMN lng_inicio REAL",
+        "ALTER TABLE viajes ADD COLUMN lat_fin REAL",
+        "ALTER TABLE viajes ADD COLUMN lng_fin REAL",
+        "ALTER TABLE viajes ADD COLUMN creado_en TEXT",
+        "ALTER TABLE clientes ADD COLUMN comuna_id TEXT",
+        "ALTER TABLE consignatarios ADD COLUMN comuna_id TEXT",
+      ];
+      for (final sql in nuevasColumnasViajes) {
+        try {
+          await db.execute(sql);
+        } catch (_) {}
+      }
     }
   }
 
@@ -221,23 +245,83 @@ class DatabaseHelper {
   }
 
   // ==========================================
-  // CATÁLOGO DE CAMIONES
+  // CATÁLOGOS: CAMIONES, CLIENTES, CONSIGNATARIOS, REGIONES
   // ==========================================
   Future<void> upsertCamionDesdeSupabase(RegistroMapa cam) async {
     final db = await instance.database;
     final id = cam['id']?.toString() ?? '';
     if (id.isEmpty) return;
-    final patente = (cam['patente'] ?? cam['placa'] ?? 'S/P').toString().toUpperCase();
+
+    final existente = await db.query('camiones', where: 'id = ?', whereArgs: [id]);
+    final prev = existente.isNotEmpty ? existente.first : <String, dynamic>{};
+
+    final patente = (cam['patente'] ?? cam['placa'] ?? prev['patente'] ?? 'S/P').toString().toUpperCase();
 
     await db.insert(
       'camiones',
       {
         'id': id,
         'patente': patente,
-        'tipo_camion': cam['tipo_camion']?.toString(),
-        'marca': cam['marca']?.toString(),
-        'modelo': cam['modelo']?.toString(),
-        'estado': cam['estado']?.toString() ?? 'disponible',
+        'tipo_camion': cam['tipo_camion']?.toString() ?? prev['tipo_camion']?.toString(),
+        'marca': cam['marca']?.toString() ?? prev['marca']?.toString(),
+        'modelo': cam['modelo']?.toString() ?? prev['modelo']?.toString(),
+        'estado': cam['estado']?.toString() ?? prev['estado']?.toString() ?? 'disponible',
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> upsertClienteDesdeSupabase(RegistroMapa c) async {
+    final db = await instance.database;
+    final id = c['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    final nombreCli = c['nombre_empresa'] ?? c['nombre'] ?? c['razon_social'] ?? 'Cliente';
+
+    await db.insert(
+      'clientes',
+      {
+        'id': id,
+        'nombre_empresa': nombreCli.toString(),
+        'nombre_contacto': c['nombre_contacto']?.toString() ?? '',
+        'telefono': (c['telefono'] ?? c['celular'] ?? '').toString(),
+        'direccion': (c['direccion'] ?? c['ubicacion'] ?? '').toString(),
+        'region_id': c['region_id']?.toString(),
+        'comuna_id': c['comuna_id']?.toString(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> upsertConsignatarioDesdeSupabase(RegistroMapa con) async {
+    final db = await instance.database;
+    final id = con['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    final nombreCon = con['nombre_empresa'] ?? con['nombre'] ?? con['razon_social'] ?? 'Consignatario';
+
+    await db.insert(
+      'consignatarios',
+      {
+        'id': id,
+        'nombre_empresa': nombreCon.toString(),
+        'direccion': (con['direccion'] ?? con['ubicacion'] ?? '').toString(),
+        'region_id': con['region_id']?.toString(),
+        'comuna_id': con['comuna_id']?.toString(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> upsertRegionDesdeSupabase(RegistroMapa r) async {
+    final db = await instance.database;
+    final id = r['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    final nombreReg = r['nombre'] ?? r['region'] ?? 'Región';
+
+    await db.insert(
+      'regiones',
+      {
+        'id': id,
+        'nombre': nombreReg.toString(),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -249,9 +333,34 @@ class DatabaseHelper {
     return rows.map((r) => Map<String, dynamic>.from(r)).toList();
   }
 
+  Future<ListaRegistros> obtenerTodosLosConsignatarios() async {
+    final db = await instance.database;
+    final rows = await db.query('consignatarios', orderBy: 'nombre_empresa ASC');
+    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  Future<bool> tieneTurnoAsistenciaActivo(String rut) async {
+    final ultimo = await obtenerUltimoEventoAsistencia(rut);
+    if (ultimo == null) return false;
+    final tipo = (ultimo['tipo_evento'] ?? '').toString().toLowerCase().trim();
+    return tipo == 'entrada';
+  }
   // ==========================================
-  // MÉTODOS DE VIAJES
+  // MÉTODOS DE VIAJES (INCLUYE BLOQUEO DE RUTA DOBLE Y TODOS LOS CAMPOS)
   // ==========================================
+  Future<bool> tieneViajeEnCurso(String rut, {String? excluirViajeId}) async {
+    final db = await instance.database;
+    final rows = await db.query(
+      'viajes',
+      where: 'conductor_rut = ? AND estado = ?',
+      whereArgs: [rut, 'en_curso'],
+    );
+    if (excluirViajeId != null) {
+      return rows.any((r) => r['id']?.toString() != excluirViajeId);
+    }
+    return rows.isNotEmpty;
+  }
+
   Future<void> upsertViajeDesdeSupabase(RegistroMapa v) async {
     final db = await instance.database;
 
@@ -261,68 +370,69 @@ class DatabaseHelper {
     }
 
     if (v['clientes'] is Map && v['cliente_id'] != null) {
-      final c = v['clientes'] as Map;
-      final nombreCli = c['nombre_empresa'] ?? c['nombre'] ?? c['razon_social'] ?? 'Cliente';
-      await db.insert('clientes', {
-        'id': v['cliente_id'].toString(),
-        'nombre_empresa': nombreCli.toString(),
-        'telefono': (c['telefono'] ?? c['celular'] ?? '').toString(),
-        'direccion': (c['direccion'] ?? c['ubicacion'] ?? '').toString(),
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      final c = Map<String, dynamic>.from(v['clientes'] as Map);
+      c['id'] = v['cliente_id'].toString();
+      await upsertClienteDesdeSupabase(c);
     }
 
     if (v['consignatarios'] is Map && v['consignatario_id'] != null) {
-      final con = v['consignatarios'] as Map;
-      final nombreCon = con['nombre_empresa'] ?? con['nombre'] ?? con['razon_social'] ?? 'Destino';
-      await db.insert('consignatarios', {
-        'id': v['consignatario_id'].toString(),
-        'nombre_empresa': nombreCon.toString(),
-        'direccion': (con['direccion'] ?? con['ubicacion'] ?? '').toString(),
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      final con = Map<String, dynamic>.from(v['consignatarios'] as Map);
+      con['id'] = v['consignatario_id'].toString();
+      await upsertConsignatarioDesdeSupabase(con);
     }
 
     if (v['regiones'] is Map && v['region_id'] != null) {
-      final r = v['regiones'] as Map;
-      final nombreReg = r['nombre'] ?? r['region'] ?? 'Región';
-      await db.insert('regiones', {
-        'id': v['region_id'].toString(),
-        'nombre': nombreReg.toString(),
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      final r = Map<String, dynamic>.from(v['regiones'] as Map);
+      r['id'] = v['region_id'].toString();
+      await upsertRegionDesdeSupabase(r);
     }
 
     if (v['camiones'] is Map && v['camion_id'] != null) {
-      final cam = v['camiones'] as Map;
-      final patenteCam = cam['patente'] ?? cam['placa'] ?? 'S/P';
-      await db.insert('camiones', {
-        'id': v['camion_id'].toString(),
-        'patente': patenteCam.toString().toUpperCase(),
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      final cam = Map<String, dynamic>.from(v['camiones'] as Map);
+      cam['id'] = v['camion_id'].toString();
+      await upsertCamionDesdeSupabase(cam);
     }
 
-    await db.insert('viajes', {
-      'id': v['id'].toString(),
-      'conductor_rut': v['conductor_rut']?.toString() ?? '',
-      'camion_id': v['camion_id']?.toString(),
-      'cliente_id': v['cliente_id']?.toString(),
-      'region_id': v['region_id']?.toString(),
-      'consignatario_id': v['consignatario_id']?.toString(),
-      'fecha_viaje': v['fecha_viaje']?.toString() ?? '',
-      'numero_guia': v['numero_guia']?.toString(),
-      'pallets': v['pallets'] is int ? v['pallets'] : int.tryParse(v['pallets']?.toString() ?? '0') ?? 0,
-      'horas_nocturnas': (v['horas_nocturnas'] is num) ? (v['horas_nocturnas'] as num).toDouble() : 0.0,
-      'horas_sabado': (v['horas_sabado'] is num) ? (v['horas_sabado'] as num).toDouble() : 0.0,
-      'monto_tag': v['monto_tag'] is int ? v['monto_tag'] : int.tryParse(v['monto_tag']?.toString() ?? '0') ?? 0,
-      'guia_petroleo': v['guia_petroleo']?.toString(),
-      'observaciones_conductor': v['observaciones_conductor']?.toString(),
-      'observaciones_admin': v['observaciones_admin']?.toString(),
-      'estado': v['estado']?.toString() ?? 'pendiente',
-      'iniciado_en': v['iniciado_en']?.toString(),
-      'finalizado_en': v['finalizado_en']?.toString(),
-      'hora_carga': v['hora_carga']?.toString(),
-      'hora_descarga': v['hora_descarga']?.toString(),
-      'is_synced': 1,
-      'sync_action': 'NONE',
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+      'viajes',
+      {
+        'id': v['id'].toString(),
+        'conductor_rut': v['conductor_rut']?.toString() ?? '',
+        'camion_id': v['camion_id']?.toString(),
+        'cliente_id': v['cliente_id']?.toString(),
+        'region_id': v['region_id']?.toString(),
+        'consignatario_id': v['consignatario_id']?.toString(),
+        'fecha_viaje': v['fecha_viaje']?.toString() ?? '',
+        'numero_guia': v['numero_guia']?.toString(),
+        'pallets': v['pallets'] is int ? v['pallets'] : int.tryParse(v['pallets']?.toString() ?? '0') ?? 0,
+        'horas_nocturnas': (v['horas_nocturnas'] is num)
+            ? (v['horas_nocturnas'] as num).toDouble()
+            : double.tryParse(v['horas_nocturnas']?.toString() ?? '0') ?? 0.0,
+        'horas_sabado': (v['horas_sabado'] is num)
+            ? (v['horas_sabado'] as num).toDouble()
+            : double.tryParse(v['horas_sabado']?.toString() ?? '0') ?? 0.0,
+        'monto_tag': v['monto_tag'] is int ? v['monto_tag'] : int.tryParse(v['monto_tag']?.toString() ?? '0') ?? 0,
+        'monto_peonetas': v['monto_peonetas'] is int
+            ? v['monto_peonetas']
+            : int.tryParse(v['monto_peonetas']?.toString() ?? '0') ?? 0,
+        'guia_petroleo': v['guia_petroleo']?.toString(),
+        'observaciones_conductor': v['observaciones_conductor']?.toString(),
+        'observaciones_admin': v['observaciones_admin']?.toString(),
+        'estado': v['estado']?.toString() ?? 'pendiente',
+        'iniciado_en': v['iniciado_en']?.toString(),
+        'finalizado_en': v['finalizado_en']?.toString(),
+        'lat_inicio': (v['lat_inicio'] is num) ? (v['lat_inicio'] as num).toDouble() : null,
+        'lng_inicio': (v['lng_inicio'] is num) ? (v['lng_inicio'] as num).toDouble() : null,
+        'lat_fin': (v['lat_fin'] is num) ? (v['lat_fin'] as num).toDouble() : null,
+        'lng_fin': (v['lng_fin'] is num) ? (v['lng_fin'] as num).toDouble() : null,
+        'creado_en': v['creado_en']?.toString(),
+        'hora_carga': v['hora_carga']?.toString(),
+        'hora_descarga': v['hora_descarga']?.toString(),
+        'is_synced': 1,
+        'sync_action': 'NONE',
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<ListaRegistros> obtenerViajesPorEstado(String rut, String estado) async {
@@ -332,19 +442,23 @@ class DatabaseHelper {
       SELECT 
         v.*,
         c.nombre_empresa AS cliente_nombre,
+        c.nombre_contacto AS cliente_contacto,
         c.direccion AS cliente_direccion,
         c.telefono AS cliente_telefono,
         consig.nombre_empresa AS consignatario_nombre,
         consig.direccion AS consignatario_direccion,
         r.nombre AS region_nombre,
-        cam.patente AS camion_patente
+        cam.patente AS camion_patente,
+        cam.tipo_camion AS camion_tipo,
+        cam.marca AS camion_marca,
+        cam.modelo AS camion_modelo
       FROM viajes v
       LEFT JOIN clientes c ON v.cliente_id = c.id
       LEFT JOIN consignatarios consig ON v.consignatario_id = consig.id
       LEFT JOIN regiones r ON v.region_id = r.id
       LEFT JOIN camiones cam ON v.camion_id = cam.id
       WHERE v.conductor_rut = ? AND v.estado = ?
-      ORDER BY v.fecha_viaje ASC
+      ORDER BY v.fecha_viaje DESC, v.hora_carga ASC
     ''', [rut, estado]);
 
     return rows.map((row) {
@@ -352,6 +466,7 @@ class DatabaseHelper {
       map['clientes'] = {
         'nombre_empresa': row['cliente_nombre'],
         'nombre': row['cliente_nombre'],
+        'nombre_contacto': row['cliente_contacto'],
         'direccion': row['cliente_direccion'],
         'telefono': row['cliente_telefono'],
       };
@@ -365,6 +480,9 @@ class DatabaseHelper {
       };
       map['camiones'] = {
         'patente': row['camion_patente'],
+        'tipo_camion': row['camion_tipo'],
+        'marca': row['camion_marca'],
+        'modelo': row['camion_modelo'],
       };
       return map;
     }).toList();
@@ -509,31 +627,44 @@ class DatabaseHelper {
     final localVoucher = existente.isNotEmpty ? existente.first['local_path_voucher']?.toString() : null;
     final localTablero = existente.isNotEmpty ? existente.first['local_path_tablero']?.toString() : null;
 
-    await db.insert('registros_combustible', {
-      'id': c['id'].toString(),
-      'conductor_rut': c['conductor_rut']?.toString() ?? '',
-      'camion_id': c['camion_id']?.toString(),
-      'camion_patente': patente ?? c['camion_patente']?.toString() ?? 'Camión Asignado',
-      'estacion': c['estacion']?.toString() ?? 'AIRE',
-      'odometro': c['odometro'] is int ? c['odometro'] : int.tryParse(c['odometro']?.toString() ?? '0') ?? 0,
-      'tipo_combustible': c['tipo_combustible']?.toString() ?? 'Diesel',
-      'litros': (c['litros'] is num) ? (c['litros'] as num).toDouble() : double.tryParse(c['litros']?.toString() ?? '0') ?? 0.0,
-      'costo_total': (c['costo_total'] is num) ? (c['costo_total'] as num).toDouble() : double.tryParse(c['costo_total']?.toString() ?? '0') ?? 0.0,
-      'url_foto_voucher': c['url_foto_voucher']?.toString(),
-      'url_foto_tablero': c['url_foto_tablero']?.toString(),
-      'local_path_voucher': localVoucher,
-      'local_path_tablero': localTablero,
-      'estado_revision': c['estado_revision']?.toString() ?? 'pendiente',
-      'observaciones_admin': c['observaciones_admin']?.toString(),
-      'registrado_en': c['registrado_en']?.toString() ?? c['created_at']?.toString() ?? DateTime.now().toIso8601String(),
-      'is_synced': 1,
-      'sync_action': 'NONE',
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+      'registros_combustible',
+      {
+        'id': c['id'].toString(),
+        'conductor_rut': c['conductor_rut']?.toString() ?? '',
+        'camion_id': c['camion_id']?.toString(),
+        'camion_patente': patente ?? c['camion_patente']?.toString() ?? 'Camión Asignado',
+        'estacion': c['estacion']?.toString() ?? 'AIRE',
+        'odometro': c['odometro'] is int ? c['odometro'] : int.tryParse(c['odometro']?.toString() ?? '0') ?? 0,
+        'tipo_combustible': c['tipo_combustible']?.toString() ?? 'Diesel',
+        'litros': (c['litros'] is num)
+            ? (c['litros'] as num).toDouble()
+            : double.tryParse(c['litros']?.toString() ?? '0') ?? 0.0,
+        'costo_total': (c['costo_total'] is num)
+            ? (c['costo_total'] as num).toDouble()
+            : double.tryParse(c['costo_total']?.toString() ?? '0') ?? 0.0,
+        'url_foto_voucher': c['url_foto_voucher']?.toString(),
+        'url_foto_tablero': c['url_foto_tablero']?.toString(),
+        'local_path_voucher': localVoucher,
+        'local_path_tablero': localTablero,
+        'estado_revision': c['estado_revision']?.toString() ?? 'pendiente',
+        'observaciones_admin': c['observaciones_admin']?.toString(),
+        'registrado_en': c['registrado_en']?.toString() ?? c['created_at']?.toString() ?? DateTime.now().toIso8601String(),
+        'is_synced': 1,
+        'sync_action': 'NONE',
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   // ==========================================
-  // MÉTODOS DE ASISTENCIA
+  // MÉTODOS DE ASISTENCIA (ORDENADOS POR DATETIME UTC REAL)
   // ==========================================
+  DateTime _parseHoraUtc(dynamic val) {
+    if (val == null) return DateTime.fromMillisecondsSinceEpoch(0);
+    return DateTime.tryParse(val.toString().trim())?.toUtc() ?? DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
   Future<void> insertarAsistenciaOffline(RegistroMapa registro) async {
     final db = await instance.database;
     await _crearTablaAsistencia(db);
@@ -557,23 +688,15 @@ class DatabaseHelper {
       'asistencia',
       where: 'conductor_rut = ?',
       whereArgs: [rut],
-      orderBy: 'hora_evento DESC',
     );
-    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+    final lista = rows.map((r) => Map<String, dynamic>.from(r)).toList();
+    lista.sort((a, b) => _parseHoraUtc(b['hora_evento']).compareTo(_parseHoraUtc(a['hora_evento'])));
+    return lista;
   }
 
   Future<RegistroMapa?> obtenerUltimoEventoAsistencia(String rut) async {
-    final db = await instance.database;
-    await _crearTablaAsistencia(db);
-
-    final rows = await db.query(
-      'asistencia',
-      where: 'conductor_rut = ?',
-      whereArgs: [rut],
-      orderBy: 'hora_evento DESC',
-      limit: 1,
-    );
-    if (rows.isNotEmpty) return Map<String, dynamic>.from(rows.first);
+    final historial = await obtenerHistorialAsistencia(rut);
+    if (historial.isNotEmpty) return historial.first;
     return null;
   }
 
@@ -603,6 +726,9 @@ class DatabaseHelper {
       return;
     }
 
+    final horaNorm = DateTime.tryParse(a['hora_evento']?.toString() ?? '')?.toUtc().toIso8601String() ??
+        DateTime.now().toUtc().toIso8601String();
+
     await db.insert(
       'asistencia',
       {
@@ -615,7 +741,7 @@ class DatabaseHelper {
         'longitud': (a['longitud'] is num)
             ? (a['longitud'] as num).toDouble()
             : double.tryParse(a['longitud']?.toString() ?? '0') ?? 0.0,
-        'hora_evento': a['hora_evento']?.toString() ?? DateTime.now().toIso8601String(),
+        'hora_evento': horaNorm,
         'is_synced': 1,
         'sync_action': 'NONE',
       },
@@ -624,7 +750,7 @@ class DatabaseHelper {
   }
 
   // ==========================================
-  // MÉTODOS DE INCIDENTES EN RUTA (OFFLINE + SUPABASE)
+  // MÉTODOS DE INCIDENTES EN RUTA
   // ==========================================
   Future<void> insertarIncidenteOffline(RegistroMapa registro) async {
     final db = await instance.database;

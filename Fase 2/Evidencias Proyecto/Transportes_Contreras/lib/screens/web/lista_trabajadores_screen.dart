@@ -61,15 +61,41 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final data = await Supabase.instance.client
-          .from('conductores')
-          .select('*');
+      final supabase = Supabase.instance.client;
+
+      // 1. Obtener todos los conductores
+      final List listaRemota = await supabase.from('conductores').select('*');
+
+      // 2. Obtener viajes con Cliente y Consignatario
+      List listaViajes = [];
+      try {
+        listaViajes = await supabase
+            .from('viajes')
+            .select('conductor_rut, estado, fecha_viaje, iniciado_en, finalizado_en, clientes(nombre_empresa), consignatarios(nombre_empresa)')
+            .order('fecha_viaje', ascending: false);
+      } catch (e) {
+        debugPrint('Aviso consultando viajes para trabajadores: $e');
+      }
+
+      // 3. Obtener el historial de asistencia
+      List listaAsistencias = [];
+      try {
+        listaAsistencias = await supabase
+            .from('asistencia')
+            .select('conductor_rut, tipo_evento, hora_evento')
+            .order('hora_evento', ascending: false);
+      } catch (e) {
+        debugPrint('Aviso consultando asistencia para trabajadores: $e');
+      }
 
       if (mounted) {
-        final List<dynamic> listaRemota = data as List<dynamic>? ?? [];
-        final List<TrabajadorItem> datosMapeados = listaRemota.map((t) {
-          final map = t as TrabajadorItem;
-          final nombre = (map['nombre_completo'] ?? 'Sin Nombre').toString();
+        final List<TrabajadorItem> datosMapeados = [];
+
+        for (final t in listaRemota) {
+          if (t is! Map) continue;
+          final TrabajadorItem map = TrabajadorItem.from(t);
+          final String rut = (map['rut'] ?? '').toString().trim();
+          final String nombre = (map['nombre_completo'] ?? 'Sin Nombre').toString();
 
           String iniciales = 'TR';
           final partes = nombre.trim().split(' ');
@@ -79,8 +105,71 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
             iniciales = partes[0][0].toUpperCase();
           }
 
-          return <String, dynamic>{
-            'rut': (map['rut'] ?? '').toString(),
+          // Filtrar los viajes que pertenecen a este RUT y buscar si hay uno en_curso
+          final List<TrabajadorItem> viajesDelChofer = [];
+          TrabajadorItem? viajeEnCurso;
+
+          for (final itemV in listaViajes) {
+            if (itemV is Map) {
+              final TrabajadorItem vMap = TrabajadorItem.from(itemV);
+              final String rutViaje = (vMap['conductor_rut'] ?? '').toString().trim();
+              if (rutViaje == rut) {
+                viajesDelChofer.add(vMap);
+                final String estV = (vMap['estado'] ?? '').toString().toLowerCase().trim();
+                if (viajeEnCurso == null && estV == 'en_curso') {
+                  viajeEnCurso = vMap;
+                }
+              }
+            }
+          }
+
+          // Construir el texto real de Último Viaje: "Cliente -> Consignatario"
+          String ultimoViajeTexto = 'Sin viajes registrados';
+          final TrabajadorItem? viajeReferencia =
+              viajeEnCurso ?? (viajesDelChofer.isNotEmpty ? viajesDelChofer.first : null);
+
+          if (viajeReferencia != null) {
+            String nombreCliente = 'Origen';
+            final cliData = viajeReferencia['clientes'];
+            if (cliData is Map) {
+              nombreCliente = (cliData['nombre_empresa'] ?? 'Origen').toString();
+            }
+
+            String nombreConsignatario = 'Destino';
+            final conData = viajeReferencia['consignatarios'];
+            if (conData is Map) {
+              nombreConsignatario = (conData['nombre_empresa'] ?? 'Destino').toString();
+            }
+            ultimoViajeTexto = '$nombreCliente ➔ $nombreConsignatario';
+          }
+
+          // Determinar el Estado real del trabajador ('En Ruta', 'Activo', 'Inactivo')
+          String estadoReal = (map['estado'] ?? '').toString().trim();
+          if (viajeEnCurso != null) {
+            estadoReal = 'En Ruta';
+          } else {
+            TrabajadorItem? ultimaAsistencia;
+            for (final itemA in listaAsistencias) {
+              if (itemA is Map) {
+                final TrabajadorItem aMap = TrabajadorItem.from(itemA);
+                final String rutAsist = (aMap['conductor_rut'] ?? '').toString().trim();
+                if (rutAsist == rut) {
+                  ultimaAsistencia = aMap;
+                  break;
+                }
+              }
+            }
+
+            if (ultimaAsistencia != null) {
+              final String tipoEv = (ultimaAsistencia['tipo_evento'] ?? '').toString().toLowerCase().trim();
+              estadoReal = (tipoEv == 'entrada') ? 'Activo' : 'Inactivo';
+            } else if (estadoReal.isEmpty) {
+              estadoReal = 'Inactivo';
+            }
+          }
+
+          datosMapeados.add({
+            'rut': rut,
             'nombre_completo': nombre,
             'fecha_nacimiento': (map['fecha_nacimiento'] ?? '').toString(),
             'email': (map['email'] ?? 'sin_correo@tcontreras.cl').toString(),
@@ -91,10 +180,10 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
             'creado_en': (map['creado_en'] ?? '').toString(),
             'nombre': nombre,
             'iniciales': iniciales,
-            'estado': 'Activo',
-            'ultimo_viaje': 'Santiago - Antofagasta',
-          };
-        }).toList();
+            'estado': estadoReal,
+            'ultimo_viaje': ultimoViajeTexto,
+          });
+        }
 
         setState(() {
           _datosOriginales = datosMapeados;
@@ -153,8 +242,8 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: Row(
-          children: const [
+        title: const Row(
+          children: [
             Icon(Icons.warning_amber_rounded, color: Colors.red, size: 24),
             SizedBox(width: 8),
             Text('Eliminar Trabajador', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
@@ -528,7 +617,10 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
   }
 
   int get _totalPersonal => _datosOriginales.length;
-  int get _conductoresActivos => _datosOriginales.where((t) => t['estado'].toString().toLowerCase() == 'activo').length;
+  int get _conductoresActivos => _datosOriginales.where((t) {
+        final est = t['estado'].toString().toLowerCase();
+        return est == 'activo' || est == 'en ruta';
+      }).length;
   int get _enRutaActual => _datosOriginales.where((t) => t['estado'].toString().toLowerCase() == 'en ruta').length;
 
   @override
@@ -548,18 +640,18 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
             builder: (context, constraints) {
               final bool esPantallaAncha = constraints.maxWidth > 750;
 
-              final Widget bloqueTitulos = Column(
+              final Widget bloqueTitulos = const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
-                    children: const [
+                    children: [
                       Icon(Icons.people_alt_outlined, size: 14, color: AppColors.textSecondary),
                       SizedBox(width: 6),
                       Text('RECURSOS HUMANOS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 0.8)),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  const Text('Lista de Trabajadores', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  SizedBox(height: 6),
+                  Text('Lista de Trabajadores', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
                 ],
               );
 
@@ -745,14 +837,14 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
-      child: Row(
-        children: const [
+      child: const Row(
+        children: [
           Expanded(flex: 3, child: Text('Trabajador', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
           Expanded(flex: 3, child: Text('Contacto', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
           Expanded(flex: 2, child: Text('Estado', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
           Expanded(flex: 2, child: Text('RUT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
           Expanded(flex: 4, child: Text('Documentos', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-          Expanded(flex: 3, child: Text('Último Viaje', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
+          Expanded(flex: 3, child: Text('Último Viaje (Cliente ➔ Destino)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
           SizedBox(width: 40),
         ],
       ),
@@ -764,6 +856,18 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
     final String rut = item['rut'].toString();
     final String urlCarnet = (item['url_cedula_identidad'] ?? '').toString();
     final String urlLicencia = (item['url_licencia_conducir'] ?? '').toString();
+
+    final String estadoTexto = (item['estado'] ?? 'Inactivo').toString();
+    final String estadoLower = estadoTexto.toLowerCase();
+    final bool esEnRuta = estadoLower == 'en ruta';
+    final bool esActivo = estadoLower == 'activo';
+
+    final Color colorFondoEstado = esEnRuta
+        ? const Color(0xFFFEF3C7)
+        : (esActivo ? AppColors.successBg : const Color(0xFFF1F5F9));
+    final Color colorTextoEstado = esEnRuta
+        ? const Color(0xFFD97706)
+        : (esActivo ? AppColors.success : const Color(0xFF64748B));
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
@@ -828,15 +932,18 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
               ],
             ),
           ),
-          // Estado
+          // Estado dinámico real (En Ruta / Activo / Inactivo)
           Expanded(
             flex: 2,
             child: Align(
               alignment: Alignment.centerLeft,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: AppColors.successBg, borderRadius: BorderRadius.circular(12)),
-                child: const Text('Activo', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.success)),
+                decoration: BoxDecoration(color: colorFondoEstado, borderRadius: BorderRadius.circular(12)),
+                child: Text(
+                  estadoTexto,
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: colorTextoEstado),
+                ),
               ),
             ),
           ),
@@ -845,7 +952,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
             flex: 2,
             child: Text(rut, style: const TextStyle(fontSize: 12, color: Color(0xFF334155), fontWeight: FontWeight.w500)),
           ),
-          // Documentos (Botones Carnet y Licencia más anchos y cómodos)
+          // Documentos (Botones Carnet y Licencia)
           Expanded(
             flex: 4,
             child: Wrap(
@@ -891,15 +998,17 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
               ],
             ),
           ),
-          // Último Viaje
+          // Último Viaje (Cliente ➔ Consignatario)
           Expanded(
             flex: 3,
             child: Text(
               item['ultimo_viaje'],
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontSize: 12,
-                fontStyle: FontStyle.italic,
-                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textPrimary,
               ),
             ),
           ),
@@ -913,11 +1022,11 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
                 if (accion == 'modificar') _abrirFormularioEdicion(item);
                 if (accion == 'eliminar') _eliminarTrabajador(item);
               },
-              itemBuilder: (ctx) => [
+              itemBuilder: (ctx) => const [
                 PopupMenuItem(
                   value: 'modificar',
                   child: Row(
-                    children: const [
+                    children: [
                       Icon(Icons.edit_outlined, size: 16, color: AppColors.primary),
                       SizedBox(width: 8),
                       Text('Modificar Trabajador', style: TextStyle(fontSize: 12.5, color: AppColors.primary, fontWeight: FontWeight.bold)),
@@ -927,7 +1036,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
                 PopupMenuItem(
                   value: 'eliminar',
                   child: Row(
-                    children: const [
+                    children: [
                       Icon(Icons.delete_outline, size: 16, color: Colors.red),
                       SizedBox(width: 8),
                       Text('Eliminar Trabajador', style: TextStyle(fontSize: 12.5, color: Colors.red, fontWeight: FontWeight.bold)),
@@ -1297,7 +1406,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
       'Doc. Licencia Conducir',
       'Fecha Creación',
       'Estado',
-      'Último Viaje',
+      'Último Viaje (Cliente -> Consignatario)',
     ];
 
     final filas = _trabajadores.map((t) {

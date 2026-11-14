@@ -52,6 +52,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     super.dispose();
   }
 
+  /// Ciclo contable automático: del día 21 al día 20 del mes siguiente
   void _inicializarCicloActual() {
     final hoy = DateTime.now();
     if (hoy.day >= 21) {
@@ -137,7 +138,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     }
   }
 
-  /// Sincroniza y lee la fila oficial en la tabla `planillas_mensuales` de Supabase
   Future<void> _sincronizarRegistroPlanillaMensual() async {
     if (_rutConductor == null) return;
     final online = await SyncHelper.tieneInternet();
@@ -147,7 +147,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
       final inicioSql = _formatoDateSQL(_inicioCicloSeleccionado);
       final finSql = _formatoDateSQL(_finCicloSeleccionado);
 
-      // Contamos los viajes de este ciclo específico (21 al 20)
       final viajesDelCiclo = _todosViajesCompletados.where((v) {
         final f = _obtenerFechaViaje(v);
         return !f.isBefore(_inicioCicloSeleccionado) && !f.isAfter(_finCicloSeleccionado);
@@ -162,7 +161,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
           .maybeSingle();
 
       if (existente != null) {
-        // Si el conteo local cambió, actualizamos total_viajes en planillas_mensuales
         if ((existente['total_viajes'] ?? 0) != viajesDelCiclo) {
           await Supabase.instance.client
               .from('planillas_mensuales')
@@ -175,7 +173,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
           });
         }
       } else if (viajesDelCiclo > 0) {
-        // Si hay viajes en el ciclo y no existía la fila en planillas_mensuales, la creamos
         final insertada = await Supabase.instance.client
             .from('planillas_mensuales')
             .insert({
@@ -183,7 +180,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
               'inicio_ciclo': inicioSql,
               'fin_ciclo': finSql,
               'total_viajes': viajesDelCiclo,
-              'monto_total': 0, // 0 por secreto comercial en app conductores
+              'monto_total': 0,
               'estado': 'en_revision',
             })
             .select()
@@ -289,11 +286,18 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
 
       final q = _textoBusqueda.toLowerCase();
       final guia = (v['numero_guia'] ?? '').toString().toLowerCase();
+      final guiaPet = (v['guia_petroleo'] ?? '').toString().toLowerCase();
       final cliente = _safeString(v['clientes'], ['nombre_empresa', 'nombre'], '').toLowerCase();
       final destino = _safeString(v['consignatarios'], ['nombre_empresa', 'nombre'], '').toLowerCase();
+      final region = _safeString(v['regiones'], ['nombre'], '').toLowerCase();
       final patente = _safeString(v['camiones'], ['patente'], '').toLowerCase();
 
-      return guia.contains(q) || cliente.contains(q) || destino.contains(q) || patente.contains(q);
+      return guia.contains(q) ||
+          guiaPet.contains(q) ||
+          cliente.contains(q) ||
+          destino.contains(q) ||
+          region.contains(q) ||
+          patente.contains(q);
     }).toList();
   }
 
@@ -320,7 +324,10 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     return '${dt.day.toString().padLeft(2, '0')} ${_mesesCortos[dt.month - 1]} ${dt.year}';
   }
 
-  String _formatearHora(DateTime dt) {
+  String _formatearHoraIso(String? iso) {
+    if (iso == null || iso.isEmpty) return '--:--';
+    final dt = DateTime.tryParse(iso)?.toLocal();
+    if (dt == null) return '--:--';
     return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} hrs';
   }
 
@@ -330,30 +337,35 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
 
     final int totalViajes = listaCiclo.length;
     int totalPallets = 0;
-    double totalHorasExtra = 0.0;
+    double totalHorasNocturnas = 0.0;
+    double totalHorasSabado = 0.0;
 
     for (final v in listaCiclo) {
       totalPallets += (v['pallets'] is int)
           ? (v['pallets'] as int)
           : int.tryParse(v['pallets']?.toString() ?? '0') ?? 0;
-      final hn = (v['horas_nocturnas'] is num) ? (v['horas_nocturnas'] as num).toDouble() : 0.0;
-      final hs = (v['horas_sabado'] is num) ? (v['horas_sabado'] as num).toDouble() : 0.0;
-      totalHorasExtra += (hn + hs);
+      totalHorasNocturnas += (v['horas_nocturnas'] is num)
+          ? (v['horas_nocturnas'] as num).toDouble()
+          : double.tryParse(v['horas_nocturnas']?.toString() ?? '0') ?? 0.0;
+      totalHorasSabado += (v['horas_sabado'] is num)
+          ? (v['horas_sabado'] as num).toDouble()
+          : double.tryParse(v['horas_sabado']?.toString() ?? '0') ?? 0.0;
     }
 
+    final double totalHorasExtra = totalHorasNocturnas + totalHorasSabado;
     final inicioCiclo = _inicioCicloSeleccionado;
     final finCiclo = _finCicloSeleccionado;
 
-    String textoEstadoCiclo = 'CICLO ACTIVO (CIERRA EL 20)';
+    String textoEstadoCiclo = 'CICLO ACTIVO (CIERRA EL DÍA 20)';
     Color colorEstadoCiclo = Colors.greenAccent;
     if (_estadoRevisionAdmin == 'aprobado') {
-      textoEstadoCiclo = 'PLANILLA APROBADA';
+      textoEstadoCiclo = 'PLANILLA RENDIDA Y APROBADA';
       colorEstadoCiclo = Colors.greenAccent;
     } else if (_estadoRevisionAdmin == 'rechazado') {
-      textoEstadoCiclo = 'PLANILLA OBSERVADA';
+      textoEstadoCiclo = 'PLANILLA CON OBSERVACIONES';
       colorEstadoCiclo = Colors.amberAccent;
     } else if (!_esCicloAbierto) {
-      textoEstadoCiclo = 'CERRADA • EN REVISIÓN';
+      textoEstadoCiclo = 'CICLO CERRADO EL 20 • EN REVISIÓN';
       colorEstadoCiclo = Colors.orangeAccent;
     }
 
@@ -379,7 +391,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.sync, color: Colors.white),
-            tooltip: 'Actualizar Planilla',
+            tooltip: 'Sincronizar Planilla',
             onPressed: _cargarPlanilla,
           ),
         ],
@@ -391,6 +403,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // 1. TARJETA SUPERIOR DE CICLO CONTABLE (21 AL 20)
                   Container(
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
@@ -464,7 +477,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                                   Text(
                                     _rangoFechasPersonalizado != null
                                         ? '${_formatearFechaCorta(_rangoFechasPersonalizado!.start)}  al  ${_formatearFechaCorta(_rangoFechasPersonalizado!.end)}'
-                                        : 'Del 21 ${_mesesCortos[inicioCiclo.month - 1]} ${inicioCiclo.year} al 20 ${_mesesCortos[finCiclo.month - 1]} ${finCiclo.year}',
+                                        : 'Ciclo: 21 ${_mesesCortos[inicioCiclo.month - 1]} ${inicioCiclo.year} al 20 ${_mesesCortos[finCiclo.month - 1]} ${finCiclo.year}',
                                     textAlign: TextAlign.center,
                                     style: const TextStyle(color: Color(0xFFE67E22), fontSize: 12, fontWeight: FontWeight.w600),
                                   ),
@@ -484,24 +497,25 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                           child: Divider(color: Colors.white12, height: 1),
                         ),
 
+                        // CONTADORES OPERATIVOS (SIN MONTOS DE DINERO POR SECRETO COMERCIAL)
                         Row(
                           children: [
                             _buildMetricaCiclo(
                               valor: totalViajes.toString().padLeft(2, '0'),
-                              etiqueta: 'VIAJES DEL CICLO',
+                              etiqueta: 'VUELTAS CICLO',
                               icono: Icons.local_shipping_outlined,
                               destacado: true,
                             ),
-                            const SizedBox(width: 10),
+                            const SizedBox(width: 8),
                             _buildMetricaCiclo(
                               valor: totalPallets.toString(),
-                              etiqueta: 'PALLETS MOVIDOS',
+                              etiqueta: 'PALLETS',
                               icono: Icons.inventory_2_outlined,
                             ),
-                            const SizedBox(width: 10),
+                            const SizedBox(width: 8),
                             _buildMetricaCiclo(
-                              valor: '${totalHorasExtra.toStringAsFixed(1)} h',
-                              etiqueta: 'HRS NOCT / SÁB',
+                              valor: '${totalHorasExtra.toStringAsFixed(1)}h',
+                              etiqueta: 'HRS NOCT/SÁB',
                               icono: Icons.schedule,
                             ),
                           ],
@@ -512,6 +526,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
 
                   const SizedBox(height: 16),
 
+                  // 2. BUSCADOR Y SELECTOR DE FECHAS (MODO CARTOLA)
                   Row(
                     children: [
                       Expanded(
@@ -519,8 +534,8 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                           controller: _buscadorCtrl,
                           onChanged: (val) => setState(() => _textoBusqueda = val),
                           decoration: InputDecoration(
-                            hintText: 'Buscar por guía, cliente o destino...',
-                            hintStyle: const TextStyle(fontSize: 13, color: Colors.grey),
+                            hintText: 'Buscar por guía, cliente, destino o patente...',
+                            hintStyle: const TextStyle(fontSize: 12.5, color: Colors.grey),
                             prefixIcon: const Icon(Icons.search, size: 20),
                             suffixIcon: _textoBusqueda.isNotEmpty
                                 ? IconButton(
@@ -596,15 +611,16 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
 
                   const SizedBox(height: 18),
 
+                  // 3. LISTADO TIPO CARTOLA CON TODOS LOS DATOS DE LA TABLA VIAJES
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'CARTOLA DE VIAJES REALIZADOS',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _primaryColor, letterSpacing: 0.5),
+                        'CARTOLA DE VIAJES (CLIENTE ➔ CONSIGNATARIO)',
+                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: _primaryColor, letterSpacing: 0.4),
                       ),
                       Text(
-                        '$totalViajes ${totalViajes == 1 ? "vuelta registrada" : "vueltas registradas"}',
+                        '$totalViajes ${totalViajes == 1 ? "vuelta" : "vueltas"}',
                         style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600),
                       ),
                     ],
@@ -630,7 +646,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                           ),
                           const SizedBox(height: 4),
                           const Text(
-                            'Cada vez que finalices un viaje en ruta, aparecerá automáticamente en esta cartola.',
+                            'Al finalizar un viaje en Mis Viajes, se agregará automáticamente a esta planilla con todos sus datos.',
                             textAlign: TextAlign.center,
                             style: TextStyle(fontSize: 12, color: Colors.grey),
                           ),
@@ -638,12 +654,8 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                       ),
                     )
                   else
-                    ...listaCiclo.asMap().entries.map((entry) {
-                      final idx = entry.key;
-                      final viaje = entry.value;
-                      final numeroVuelta = totalViajes - idx;
-                      return _buildItemCartola(viaje, numeroVuelta);
-                    }),
+                    for (int idx = 0; idx < listaCiclo.length; idx++)
+                      _buildItemCartola(listaCiclo[idx], totalViajes - idx),
                 ],
               ),
             ),
@@ -658,7 +670,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
   }) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
         decoration: BoxDecoration(
           color: destacado ? _orangeColor : Colors.white.withOpacity(0.08),
           borderRadius: BorderRadius.circular(14),
@@ -669,7 +681,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
             const SizedBox(height: 6),
             Text(
               valor,
-              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+              style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 2),
             Text(
@@ -685,16 +697,23 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
 
   Widget _buildItemCartola(RegistroMapa viaje, int numeroVuelta) {
     final fechaDt = _obtenerFechaViaje(viaje);
-    final cliente = _safeString(viaje['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Origen');
-    final destino = _safeString(viaje['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Destino');
+    final cliente = _safeString(viaje['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Cliente Origen');
+    final destino = _safeString(viaje['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Consignatario Destino');
     final region = _safeString(viaje['regiones'], ['nombre'], '');
     final patente = _safeString(viaje['camiones'], ['patente'], 'S/P');
+    final tipoCamion = _safeString(viaje['camiones'], ['tipo_camion'], '');
 
     final guia = (viaje['numero_guia'] ?? 'S/G').toString();
     final pallets = (viaje['pallets'] ?? 0).toString();
     final guiaPetroleo = (viaje['guia_petroleo'] ?? '').toString();
-    final hNoct = (viaje['horas_nocturnas'] is num) ? (viaje['horas_nocturnas'] as num).toDouble() : 0.0;
-    final hSab = (viaje['horas_sabado'] is num) ? (viaje['horas_sabado'] as num).toDouble() : 0.0;
+    final hNoct = (viaje['horas_nocturnas'] is num)
+        ? (viaje['horas_nocturnas'] as num).toDouble()
+        : double.tryParse(viaje['horas_nocturnas']?.toString() ?? '0') ?? 0.0;
+    final hSab = (viaje['horas_sabado'] is num)
+        ? (viaje['horas_sabado'] as num).toDouble()
+        : double.tryParse(viaje['horas_sabado']?.toString() ?? '0') ?? 0.0;
+    final tieneTag = ((viaje['monto_tag'] is num) ? (viaje['monto_tag'] as num) : int.tryParse(viaje['monto_tag']?.toString() ?? '0') ?? 0) > 0;
+    final tienePeoneta = ((viaje['monto_peonetas'] is num) ? (viaje['monto_peonetas'] as num) : int.tryParse(viaje['monto_peonetas']?.toString() ?? '0') ?? 0) > 0;
     final bool isSynced = (viaje['is_synced'] ?? 1) == 1;
 
     return InkWell(
@@ -712,7 +731,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 50,
+              width: 52,
               padding: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
                 color: const Color(0xFFF1F5F9),
@@ -763,22 +782,28 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                     '$cliente ➔ $destino',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: _primaryColor),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   Wrap(
-                    spacing: 10,
+                    spacing: 8,
                     runSpacing: 4,
                     children: [
-                      Text('🚛 $patente', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                      Text('📦 $pallets pallets', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      Text(
+                        '🚛 $patente${tipoCamion.isNotEmpty ? " ($tipoCamion)" : ""}',
+                        style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600),
+                      ),
+                      Text('📦 $pallets plts', style: const TextStyle(fontSize: 11, color: Colors.grey)),
                       if (region.isNotEmpty)
                         Text('📍 $region', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                      if (hNoct > 0 || hSab > 0)
-                        Text(
-                          '⏱️ +${(hNoct + hSab).toStringAsFixed(1)}h extra',
-                          style: TextStyle(fontSize: 11, color: _orangeColor, fontWeight: FontWeight.w600),
-                        ),
+                      if (hNoct > 0)
+                        Text('🌙 ${hNoct}h noct.', style: TextStyle(fontSize: 11, color: _orangeColor, fontWeight: FontWeight.w600)),
+                      if (hSab > 0)
+                        Text('📅 ${hSab}h sáb.', style: TextStyle(fontSize: 11, color: _orangeColor, fontWeight: FontWeight.w600)),
                       if (guiaPetroleo.isNotEmpty)
-                        const Text('⛽ Guía Petróleo', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                        Text('⛽ Guía Pet: $guiaPetroleo', style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                      if (tieneTag)
+                        const Text('🛣️ TAG Reg.', style: TextStyle(fontSize: 11, color: Colors.teal)),
+                      if (tienePeoneta)
+                        const Text('👷 Peoneta Reg.', style: TextStyle(fontSize: 11, color: Colors.indigo)),
                     ],
                   ),
                 ],
@@ -791,74 +816,98 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     );
   }
 
+  /// Modal con TODOS los datos relevantes de la tabla `viajes` para respaldo de planilla y rendición
   void _mostrarDetalleCartola(RegistroMapa viaje, int numeroVuelta) {
     final fechaDt = _obtenerFechaViaje(viaje);
-    final cliente = _safeString(viaje['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Origen');
-    final destino = _safeString(viaje['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Destino');
+    final cliente = _safeString(viaje['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Cliente Origen');
+    final clienteDir = _safeString(viaje['clientes'], ['direccion', 'ubicacion'], 'Sin dirección');
+    final destino = _safeString(viaje['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Consignatario Destino');
+    final destinoDir = _safeString(viaje['consignatarios'], ['direccion', 'ubicacion'], 'Sin dirección');
     final region = _safeString(viaje['regiones'], ['nombre'], 'No especificada');
     final patente = _safeString(viaje['camiones'], ['patente'], 'S/P');
+    final tipoCamion = _safeString(viaje['camiones'], ['tipo_camion'], 'Estándar');
 
     final guia = (viaje['numero_guia'] ?? 'Sin Guía').toString();
     final pallets = (viaje['pallets'] ?? 0).toString();
-    final guiaPetroleo = (viaje['guia_petroleo'] ?? 'No registrada').toString();
+    final guiaPetroleo = (viaje['guia_petroleo'] ?? '').toString();
     final hNoct = (viaje['horas_nocturnas'] ?? 0).toString();
     final hSab = (viaje['horas_sabado'] ?? 0).toString();
+    final horaCargaProg = (viaje['hora_carga'] ?? '--:--').toString();
+    final horaDescargaProg = (viaje['hora_descarga'] ?? '--:--').toString();
+    final horaInicioReal = _formatearHoraIso(viaje['iniciado_en']?.toString());
+    final horaFinReal = _formatearHoraIso(viaje['finalizado_en']?.toString());
+
+    final tieneTag = ((viaje['monto_tag'] is num) ? (viaje['monto_tag'] as num) : int.tryParse(viaje['monto_tag']?.toString() ?? '0') ?? 0) > 0;
+    final tienePeoneta = ((viaje['monto_peonetas'] is num) ? (viaje['monto_peonetas'] as num) : int.tryParse(viaje['monto_peonetas']?.toString() ?? '0') ?? 0) > 0;
+
     final obsConductor = (viaje['observaciones_conductor'] ?? '').toString();
+    final obsAdmin = (viaje['observaciones_admin'] ?? '').toString();
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
       builder: (context) {
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(22),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Comprobante Operativo • Vuelta #$numeroVuelta',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _primaryColor),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(10)),
-                      child: const Text(
-                        'EN PLANILLA',
-                        style: TextStyle(color: Color(0xFF15803D), fontSize: 10, fontWeight: FontWeight.bold),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Ficha de Planilla • Vuelta #$numeroVuelta',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _primaryColor),
                       ),
-                    ),
-                  ],
-                ),
-                const Divider(height: 24),
-                _filaFicha('Fecha y Hora Cierre', '${_formatearFechaCorta(fechaDt)} • ${_formatearHora(fechaDt)}'),
-                _filaFicha('Número de Guía', guia),
-                _filaFicha('Origen (Cliente)', cliente),
-                _filaFicha('Destino (Consignatario)', destino),
-                _filaFicha('Región / Zona', region),
-                _filaFicha('Camión / Patente', patente),
-                _filaFicha('Carga Transportada', '$pallets Pallets'),
-                _filaFicha('Horas Nocturnas / Sábado', '$hNoct hrs noct.  |  $hSab hrs sáb.'),
-                _filaFicha('Guía de Petróleo', guiaPetroleo.isEmpty ? 'No registrada' : guiaPetroleo),
-                if (obsConductor.isNotEmpty)
-                  _filaFicha('Observaciones', obsConductor),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _primaryColor,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cerrar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(10)),
+                        child: const Text(
+                          'EN PLANILLA',
+                          style: TextStyle(color: Color(0xFF15803D), fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  const Divider(height: 22),
+                  _filaFicha('Fecha del Viaje', _formatearFechaCorta(fechaDt)),
+                  _filaFicha('Número de Guía', guia),
+                  _filaFicha('Desde (Cliente Origen)', '$cliente\n$clienteDir'),
+                  _filaFicha('Hacia (Consignatario)', '$destino\n$destinoDir'),
+                  _filaFicha('Región Operativa', region),
+                  _filaFicha('Camión / Tipo', '$patente ($tipoCamion)'),
+                  _filaFicha('Pallets Movilizados', '$pallets Pallets'),
+                  _filaFicha('Horario Programado', 'Carga: $horaCargaProg  |  Descarga: $horaDescargaProg'),
+                  _filaFicha('Inicio / Fin Real', 'Inicio: $horaInicioReal  |  Cierre: $horaFinReal'),
+                  _filaFicha('Horas Nocturnas / Sábado', '$hNoct hrs nocturnas  |  $hSab hrs sábado'),
+                  _filaFicha('Guía de Petróleo', guiaPetroleo.isEmpty ? 'No registrada' : guiaPetroleo),
+                  _filaFicha(
+                    'TAG / Peonetas',
+                    'TAG: ${tieneTag ? "Rendido en sistema" : "Sin cargo"}  |  Peonetas: ${tienePeoneta ? "Rendido en sistema" : "Sin cargo"}',
+                  ),
+                  if (obsConductor.isNotEmpty)
+                    _filaFicha('Obs. Conductor', obsConductor),
+                  if (obsAdmin.isNotEmpty)
+                    _filaFicha('Notas Despacho Admin', obsAdmin),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _primaryColor,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cerrar Ficha', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -873,7 +922,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 155,
+            width: 150,
             child: Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
           ),
           Expanded(

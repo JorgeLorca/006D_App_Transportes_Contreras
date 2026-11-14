@@ -22,10 +22,10 @@ class SyncHelper {
     if (!online) return false;
 
     try {
-      // 0. Catálogo de camiones
-      await _descargarCatalogoCamiones();
+      // 0. Descargar catálogos base (Camiones, Clientes, Consignatarios, Regiones)
+      await _descargarCatalogosBase();
 
-      // 1. Viajes
+      // 1. Viajes (Sube peonetas, tag, horas, coordenadas y descarga viajes con sus relaciones)
       await _subirCambiosPendientesViajes();
       await _descargarViajesDelConductor(rutConductor);
 
@@ -33,7 +33,7 @@ class SyncHelper {
       await _subirCombustiblesPendientes();
       await _descargarCombustiblesDelConductor(rutConductor);
 
-      // 3. Asistencia
+      // 3. Asistencia (Actualiza además el estado Activo/Inactivo del conductor)
       await _subirAsistenciasPendientes();
       await _descargarAsistenciasDelConductor(rutConductor);
 
@@ -48,19 +48,51 @@ class SyncHelper {
     }
   }
 
-  static Future<void> _descargarCatalogoCamiones() async {
+  static Future<void> _descargarCatalogosBase() async {
+    final supabase = Supabase.instance.client;
     try {
-      final camionesRemotos = await Supabase.instance.client.from('camiones').select();
+      final camionesRemotos = await supabase.from('camiones').select();
       for (final c in camionesRemotos) {
         await DatabaseHelper.instance.upsertCamionDesdeSupabase(Map<String, dynamic>.from(c));
       }
     } catch (e) {
       debugPrint('Aviso descargando catálogo de camiones: $e');
     }
+
+    try {
+      final clientesRemotos = await supabase
+          .from('clientes')
+          .select('id, nombre_empresa, nombre_contacto, telefono, direccion, region_id, comuna_id');
+      for (final cli in clientesRemotos) {
+        await DatabaseHelper.instance.upsertClienteDesdeSupabase(Map<String, dynamic>.from(cli));
+      }
+    } catch (e) {
+      debugPrint('Aviso descargando catálogo de clientes: $e');
+    }
+
+    try {
+      final consigRemotos = await supabase
+          .from('consignatarios')
+          .select('id, nombre_empresa, direccion, region_id, comuna_id');
+      for (final con in consigRemotos) {
+        await DatabaseHelper.instance.upsertConsignatarioDesdeSupabase(Map<String, dynamic>.from(con));
+      }
+    } catch (e) {
+      debugPrint('Aviso descargando catálogo de consignatarios: $e');
+    }
+
+    try {
+      final regionesRemotas = await supabase.from('regiones').select('id, nombre');
+      for (final r in regionesRemotas) {
+        await DatabaseHelper.instance.upsertRegionDesdeSupabase(Map<String, dynamic>.from(r));
+      }
+    } catch (e) {
+      debugPrint('Aviso descargando catálogo de regiones: $e');
+    }
   }
 
   // ================================================================= //
-  // 1. SINCRONIZACIÓN DE VIAJES
+  // 1. SINCRONIZACIÓN DE VIAJES (TODOS LOS CAMPOS DE LA TABLA VIAJES)
   // ================================================================= //
   static Future<void> _subirCambiosPendientesViajes() async {
     final pendientes = await DatabaseHelper.instance.obtenerViajesNoSincronizados();
@@ -74,13 +106,22 @@ class SyncHelper {
         };
 
         if (viaje['numero_guia'] != null) updateData['numero_guia'] = viaje['numero_guia'];
+        if (viaje['consignatario_id'] != null && viaje['consignatario_id'].toString().isNotEmpty) {
+          updateData['consignatario_id'] = viaje['consignatario_id'];
+        }
+        if (viaje['pallets'] != null) updateData['pallets'] = viaje['pallets'];
         if (viaje['horas_nocturnas'] != null) updateData['horas_nocturnas'] = viaje['horas_nocturnas'];
         if (viaje['horas_sabado'] != null) updateData['horas_sabado'] = viaje['horas_sabado'];
         if (viaje['monto_tag'] != null) updateData['monto_tag'] = viaje['monto_tag'];
+        if (viaje['monto_peonetas'] != null) updateData['monto_peonetas'] = viaje['monto_peonetas'];
         if (viaje['guia_petroleo'] != null) updateData['guia_petroleo'] = viaje['guia_petroleo'];
         if (viaje['observaciones_conductor'] != null) {
           updateData['observaciones_conductor'] = viaje['observaciones_conductor'];
         }
+        if (viaje['lat_inicio'] != null) updateData['lat_inicio'] = viaje['lat_inicio'];
+        if (viaje['lng_inicio'] != null) updateData['lng_inicio'] = viaje['lng_inicio'];
+        if (viaje['lat_fin'] != null) updateData['lat_fin'] = viaje['lat_fin'];
+        if (viaje['lng_fin'] != null) updateData['lng_fin'] = viaje['lng_fin'];
 
         await Supabase.instance.client
             .from('viajes')
@@ -299,8 +340,6 @@ class SyncHelper {
           viajeId = null;
         }
 
-        // Si el chofer no tenía viaje en curso al reportar, buscamos su último viaje en Supabase
-        // como respaldo por si la columna viaje_id aún tuviera NOT NULL en la BD
         if (viajeId == null) {
           final viajeReciente = await Supabase.instance.client
               .from('viajes')
@@ -315,8 +354,8 @@ class SyncHelper {
         final insertData = <String, dynamic>{
           'id': inc['id'],
           'conductor_rut': inc['conductor_rut'],
-          'tipo_incidente': inc['tipo_incidente'], // 'accidente', 'falla_mecanica', 'retraso'
-          'gravedad': inc['gravedad'], // 'leve', 'moderada', 'grave'
+          'tipo_incidente': inc['tipo_incidente'],
+          'gravedad': inc['gravedad'],
           'descripcion': inc['descripcion'],
           'latitud': inc['latitud'],
           'longitud': inc['longitud'],

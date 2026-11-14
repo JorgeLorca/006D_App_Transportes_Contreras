@@ -9,8 +9,8 @@ import 'mobile/combustible_screen.dart';
 import 'mobile/asistencia_screen.dart';
 import 'mobile/perfil_conductor_screen.dart';
 import 'mobile/incidentes_screen.dart';
-import '../utils/notificaciones_accidentes_service.dart';
 import 'mobile/planilla_screen.dart';
+import '../utils/notificaciones_accidentes_service.dart';
 
 class ConductorHome extends StatefulWidget {
   const ConductorHome({super.key});
@@ -29,7 +29,6 @@ class _ConductorHomeState extends State<ConductorHome> {
 
   RegistroMapa? _viajeActivo;
   List<dynamic> _viajesPendientes = [];
-  int _totalViajesMes = 0;
 
   @override
   void initState() {
@@ -70,7 +69,6 @@ class _ConductorHomeState extends State<ConductorHome> {
       _rutConductor = rut;
       _nombreConductor = nombre ?? 'Conductor';
 
-      // Activa la escucha en tiempo real de Accidentes en Ruta reportados por otros conductores
       NotificacionesAccidentesService.inicializarYEscuchar(
         rutConductorActual: rut,
         context: context,
@@ -95,7 +93,6 @@ class _ConductorHomeState extends State<ConductorHome> {
   Future<void> _leerDesdeSQLite(String rut) async {
     final activosLocal = await DatabaseHelper.instance.obtenerViajesPorEstado(rut, 'en_curso');
     final pendientesLocal = await DatabaseHelper.instance.obtenerViajesPorEstado(rut, 'pendiente');
-    final completadosLocal = await DatabaseHelper.instance.obtenerViajesPorEstado(rut, 'completado');
     final ultimoEventoAsistencia = await DatabaseHelper.instance.obtenerUltimoEventoAsistencia(rut);
 
     final bool enTurno = ultimoEventoAsistencia != null &&
@@ -105,7 +102,6 @@ class _ConductorHomeState extends State<ConductorHome> {
       setState(() {
         _viajeActivo = activosLocal.isNotEmpty ? activosLocal.first : null;
         _viajesPendientes = pendientesLocal.take(3).toList();
-        _totalViajesMes = completadosLocal.length;
         _turnoEnCurso = enTurno;
         _isLoading = false;
       });
@@ -320,7 +316,10 @@ class _ConductorHomeState extends State<ConductorHome> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('VIAJE ACTIVO', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey)),
-                Text('${_viajesPendientes.length} pendientes', style: const TextStyle(fontSize: 14, color: Color(0xFFE67E22), fontWeight: FontWeight.bold)),
+                Text(
+                  '${_viajesPendientes.length} pendientes',
+                  style: const TextStyle(fontSize: 14, color: Color(0xFFE67E22), fontWeight: FontWeight.bold),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -446,13 +445,19 @@ class _ConductorHomeState extends State<ConductorHome> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: _turnoEnCurso ? Colors.green.withOpacity(0.25) : Colors.white12,
+                    color: _viajeActivo != null
+                        ? Colors.blue.withOpacity(0.3)
+                        : (_turnoEnCurso ? Colors.green.withOpacity(0.25) : Colors.white12),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    _turnoEnCurso ? '● Turno Activo (En Jornada)' : '○ Fuera de Turno',
+                    _viajeActivo != null
+                        ? '● En Ruta Activa'
+                        : (_turnoEnCurso ? '● Turno Activo (En Jornada)' : '○ Fuera de Turno'),
                     style: TextStyle(
-                      color: _turnoEnCurso ? Colors.greenAccent : Colors.white70,
+                      color: _viajeActivo != null
+                          ? Colors.lightBlueAccent
+                          : (_turnoEnCurso ? Colors.greenAccent : Colors.white70),
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                     ),
@@ -548,8 +553,8 @@ class _ConductorHomeState extends State<ConductorHome> {
       );
     }
 
-    final clienteNombre = _safeString(_viajeActivo!['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Origen Desconocido');
-    final consignatarioNombre = _safeString(_viajeActivo!['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Destino Desconocido');
+    final clienteNombre = _safeString(_viajeActivo!['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Cliente Origen');
+    final consignatarioNombre = _safeString(_viajeActivo!['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Consignatario Destino');
 
     final idCarga = _generarIdVisual(_viajeActivo!['id']?.toString());
     final horaCarga = _formatearHora(_viajeActivo!['hora_carga']?.toString());
@@ -583,12 +588,12 @@ class _ConductorHomeState extends State<ConductorHome> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                _buildRutaRow('ORIGEN', clienteNombre, horaCarga),
+                _buildRutaRow('DESDE (CLIENTE)', clienteNombre, horaCarga),
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 8.0),
                   child: Icon(Icons.arrow_downward, color: Colors.grey, size: 16),
                 ),
-                _buildRutaRow('DESTINO', consignatarioNombre, horaDescarga),
+                _buildRutaRow('HACIA (CONSIGNATARIO)', consignatarioNombre, horaDescarga),
               ],
             ),
           ),
@@ -612,22 +617,26 @@ class _ConductorHomeState extends State<ConductorHome> {
                       });
                     },
                     style: OutlinedButton.styleFrom(side: const BorderSide(color: Color(0xFF0F172A))),
-                    child: const Text('VER DETALLES', style: TextStyle(color: Color(0xFF0F172A), fontSize: 12, fontWeight: FontWeight.bold)),
+                    child: const Text(
+                      'VER DETALLES',
+                      style: TextStyle(color: Color(0xFF0F172A), fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: () async {
-                      if (direccionDestino.isNotEmpty) {
-                        final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(direccionDestino)}');
-                        if (await canLaunchUrl(uri)) {
-                          await launchUrl(uri, mode: LaunchMode.externalApplication);
-                        } else {
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo abrir el mapa')));
-                        }
+                      final busqueda = direccionDestino.isNotEmpty ? direccionDestino : consignatarioNombre;
+                      final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(busqueda)}');
+                      if (await canLaunchUrl(uri)) {
+                        await launchUrl(uri, mode: LaunchMode.externalApplication);
                       } else {
-                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Este destino no tiene una dirección registrada en la base de datos.')));
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('No se pudo abrir Google Maps')),
+                          );
+                        }
                       }
                     },
                     icon: const Icon(Icons.navigation, size: 16, color: Colors.white),
@@ -651,7 +660,7 @@ class _ConductorHomeState extends State<ConductorHome> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10, letterSpacing: 1.2)),
+              Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10, letterSpacing: 1.1)),
               Text(value, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
             ],
           ),
@@ -709,11 +718,11 @@ class _ConductorHomeState extends State<ConductorHome> {
         final clienteNombre = _safeString(viaje['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Cliente');
         final consignatarioNombre = _safeString(viaje['consignatarios'], ['nombre_empresa', 'nombre', 'razon_social'], 'Consignatario');
 
-        final tituloViaje = '$clienteNombre / $consignatarioNombre';
+        final tituloViaje = '$clienteNombre ➔ $consignatarioNombre';
 
         final horaCarga = _formatearHora(viaje['hora_carga']?.toString());
         final horaDescarga = _formatearHora(viaje['hora_descarga']?.toString());
-        final subtituloHoras = '$horaCarga / $horaDescarga';
+        final subtituloHoras = 'Carga: $horaCarga • Descarga: $horaDescarga';
 
         return Card(
           elevation: 0,
