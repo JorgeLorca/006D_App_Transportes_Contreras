@@ -342,8 +342,41 @@ class DatabaseHelper {
   Future<bool> tieneTurnoAsistenciaActivo(String rut) async {
     final ultimo = await obtenerUltimoEventoAsistencia(rut);
     if (ultimo == null) return false;
+
     final tipo = (ultimo['tipo_evento'] ?? '').toString().toLowerCase().trim();
-    return tipo == 'entrada';
+    if (tipo != 'entrada') return false;
+
+    final horaStr = (ultimo['hora_evento'] ?? '').toString().trim();
+    final dtEvento = DateTime.tryParse(horaStr)?.toLocal();
+    if (dtEvento == null) return false;
+
+    final ahora = DateTime.now();
+    final esMismoDia = dtEvento.year == ahora.year &&
+        dtEvento.month == ahora.month &&
+        dtEvento.day == ahora.day;
+    final horasTranscurridas = ahora.difference(dtEvento).inHours.abs();
+
+    // Solo es válido si marcó entrada hoy o dentro de las últimas 14 horas (turno nocturno)
+    return esMismoDia || horasTranscurridas <= 14;
+  }
+
+  /// Elimina de SQLite los viajes que fueron borrados en Supabase para que desaparezcan de la Planilla y de Mis Viajes
+  Future<void> eliminarViajesBorradosEnServidor(String rut, List<String> idsRemotosVigentes) async {
+    final db = await instance.database;
+    final locales = await db.query(
+      'viajes',
+      columns: ['id', 'is_synced'],
+      where: 'conductor_rut = ?',
+      whereArgs: [rut],
+    );
+
+    for (final loc in locales) {
+      final idLocal = loc['id']?.toString() ?? '';
+      final isSynced = (loc['is_synced'] ?? 1) == 1;
+      if (isSynced && idLocal.isNotEmpty && !idsRemotosVigentes.contains(idLocal)) {
+        await db.delete('viajes', where: 'id = ?', whereArgs: [idLocal]);
+      }
+    }
   }
   // ==========================================
   // MÉTODOS DE VIAJES (INCLUYE BLOQUEO DE RUTA DOBLE Y TODOS LOS CAMPOS)

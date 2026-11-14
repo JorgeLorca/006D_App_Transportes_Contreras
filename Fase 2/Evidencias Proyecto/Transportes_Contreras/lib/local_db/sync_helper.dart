@@ -149,9 +149,17 @@ class SyncHelper {
         .select(querySelect)
         .eq('conductor_rut', rut);
 
+    final List<String> idsVigentes = [];
     for (final v in viajesRemotos) {
-      await DatabaseHelper.instance.upsertViajeDesdeSupabase(Map<String, dynamic>.from(v));
+      final mapa = Map<String, dynamic>.from(v);
+      if (mapa['id'] != null) {
+        idsVigentes.add(mapa['id'].toString());
+      }
+      await DatabaseHelper.instance.upsertViajeDesdeSupabase(mapa);
     }
+
+    // Si un viaje fue eliminado en Supabase por el Admin, lo borramos también del teléfono (Planilla / Mis Viajes)
+    await DatabaseHelper.instance.eliminarViajesBorradosEnServidor(rut, idsVigentes);
   }
 
   // ================================================================= //
