@@ -20,12 +20,12 @@ class Viaje {
     required this.conductorRut,
     required this.camionId,
     required this.clienteId,
-    required this.consignatarioId,
+    this.consignatarioId,
     required this.regionId,
     required this.fechaViaje,
     required this.horaCarga,
     required this.horaDescarga,
-    required this.pallets,
+    this.pallets,
     this.observacionesAdmin,
     this.creadoEn,
   });
@@ -43,7 +43,9 @@ class Viaje {
   final String clienteId;
 
   /// FK a `consignatarios.id`. Es el destino del viaje.
-  final String consignatarioId;
+  /// Opcional: si el admin no lo elige, queda en null (= "Pendiente") hasta
+  /// que el conductor lo complete.
+  final String? consignatarioId;
 
   /// FK a `regiones.id`.
   final String regionId;
@@ -51,7 +53,9 @@ class Viaje {
   final DateTime fechaViaje;
   final TimeOfDay horaCarga;
   final TimeOfDay horaDescarga;
-  final int pallets;
+  /// Opcional: si el admin no lo ingresa, queda en null (= "Pendiente") hasta
+  /// que el conductor lo complete.
+  final int? pallets;
   final String? observacionesAdmin;
 
   /// Lo asigna la base de datos al crear la fila.
@@ -71,12 +75,14 @@ class Viaje {
         'conductor_rut': conductorRut,
         'camion_id': camionId,
         'cliente_id': clienteId,
-        'consignatario_id': consignatarioId,
+        // Si vienen null no se envían: la BD aplica su valor por defecto
+        // (el consignatario "pendiente", o NULL si no hay default).
+        if (consignatarioId != null) 'consignatario_id': consignatarioId,
         'region_id': regionId,
         'fecha_viaje': _fecha(fechaViaje),
         'hora_carga': _hora(horaCarga),
         'hora_descarga': _hora(horaDescarga),
-        'pallets': pallets,
+        'pallets': pallets ?? 0, // sin pallets = 0
         if (observacionesAdmin != null) 'observaciones_admin': observacionesAdmin,
       };
 }
