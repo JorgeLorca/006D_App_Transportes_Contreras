@@ -16,12 +16,12 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
   String _nombreConductor = 'Conductor';
 
   ListaRegistros _todosViajesCompletados = [];
+  String _estadoRevisionAdmin = 'en_revision'; // 'en_revision', 'aprobado', 'rechazado'
 
   // Mes y año de cierre del ciclo seleccionado (El ciclo cierra el día 20 de este mes/año)
   late int _mesCierreCiclo;
   late int _anioCierreCiclo;
 
-  // Filtro opcional por rango de fechas personalizado (modo cartola)
   DateTimeRange? _rangoFechasPersonalizado;
   final TextEditingController _buscadorCtrl = TextEditingController();
   String _textoBusqueda = '';
@@ -52,11 +52,9 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     super.dispose();
   }
 
-  /// Calcula automáticamente en qué ciclo (21 al 20) estamos hoy
   void _inicializarCicloActual() {
     final hoy = DateTime.now();
     if (hoy.day >= 21) {
-      // Si es 21 o superior, este ciclo cierra el 20 del próximo mes
       if (hoy.month == 12) {
         _mesCierreCiclo = 1;
         _anioCierreCiclo = hoy.year + 1;
@@ -65,7 +63,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
         _anioCierreCiclo = hoy.year;
       }
     } else {
-      // Si es del 1 al 20, este ciclo cierra el 20 de este mismo mes
       _mesCierreCiclo = hoy.month;
       _anioCierreCiclo = hoy.year;
     }
@@ -86,6 +83,10 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     return ahora.isBefore(_finCicloSeleccionado) || ahora.isAtSameMomentAs(_finCicloSeleccionado);
   }
 
+  String _formatoDateSQL(DateTime dt) {
+    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+  }
+
   void _cambiarCiclo(int deltaMeses) {
     setState(() {
       _rangoFechasPersonalizado = null;
@@ -93,6 +94,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
       _mesCierreCiclo = nuevaFecha.month;
       _anioCierreCiclo = nuevaFecha.year;
     });
+    _sincronizarRegistroPlanillaMensual();
   }
 
   Future<void> _cargarPlanilla() async {
@@ -125,6 +127,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
         final syncOk = await SyncHelper.sincronizarTodo(_rutConductor!);
         if (syncOk) {
           await _leerCompletadosDesdeSQLite(_rutConductor!);
+          await _sincronizarRegistroPlanillaMensual();
         }
       }
     } catch (e) {
@@ -134,9 +137,73 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     }
   }
 
+  /// Sincroniza y lee la fila oficial en la tabla `planillas_mensuales` de Supabase
+  Future<void> _sincronizarRegistroPlanillaMensual() async {
+    if (_rutConductor == null) return;
+    final online = await SyncHelper.tieneInternet();
+    if (!online) return;
+
+    try {
+      final inicioSql = _formatoDateSQL(_inicioCicloSeleccionado);
+      final finSql = _formatoDateSQL(_finCicloSeleccionado);
+
+      // Contamos los viajes de este ciclo específico (21 al 20)
+      final viajesDelCiclo = _todosViajesCompletados.where((v) {
+        final f = _obtenerFechaViaje(v);
+        return !f.isBefore(_inicioCicloSeleccionado) && !f.isAfter(_finCicloSeleccionado);
+      }).length;
+
+      final existente = await Supabase.instance.client
+          .from('planillas_mensuales')
+          .select()
+          .eq('conductor_rut', _rutConductor!)
+          .eq('inicio_ciclo', inicioSql)
+          .eq('fin_ciclo', finSql)
+          .maybeSingle();
+
+      if (existente != null) {
+        // Si el conteo local cambió, actualizamos total_viajes en planillas_mensuales
+        if ((existente['total_viajes'] ?? 0) != viajesDelCiclo) {
+          await Supabase.instance.client
+              .from('planillas_mensuales')
+              .update({'total_viajes': viajesDelCiclo})
+              .eq('id', existente['id']);
+        }
+        if (mounted) {
+          setState(() {
+            _estadoRevisionAdmin = (existente['estado'] ?? 'en_revision').toString();
+          });
+        }
+      } else if (viajesDelCiclo > 0) {
+        // Si hay viajes en el ciclo y no existía la fila en planillas_mensuales, la creamos
+        final insertada = await Supabase.instance.client
+            .from('planillas_mensuales')
+            .insert({
+              'conductor_rut': _rutConductor,
+              'inicio_ciclo': inicioSql,
+              'fin_ciclo': finSql,
+              'total_viajes': viajesDelCiclo,
+              'monto_total': 0, // 0 por secreto comercial en app conductores
+              'estado': 'en_revision',
+            })
+            .select()
+            .single();
+
+        if (mounted) {
+          setState(() {
+            _estadoRevisionAdmin = (insertada['estado'] ?? 'en_revision').toString();
+          });
+        }
+      } else {
+        if (mounted) setState(() => _estadoRevisionAdmin = 'en_revision');
+      }
+    } catch (e) {
+      debugPrint('Aviso sincronizando tabla planillas_mensuales: $e');
+    }
+  }
+
   Future<void> _leerCompletadosDesdeSQLite(String rut) async {
     final completados = await DatabaseHelper.instance.obtenerViajesPorEstado(rut, 'completado');
-    // Ordenamos del más reciente al más antiguo como una cartola bancaria
     completados.sort((a, b) {
       final fa = _obtenerFechaViaje(a);
       final fb = _obtenerFechaViaje(b);
@@ -161,7 +228,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     final dtDirecto = DateTime.tryParse(fechaStr)?.toLocal();
     if (dtDirecto != null) return dtDirecto;
 
-    // Soporte formato DD/MM/YYYY o DD-MM-YYYY
     final partes = fechaStr.split(RegExp(r'[/\-]'));
     if (partes.length == 3) {
       final p0 = int.tryParse(partes[0]) ?? 1;
@@ -262,7 +328,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
   Widget build(BuildContext context) {
     final listaCiclo = _viajesFiltrados;
 
-    // Métricas operativas (Sin ningún valor monetario)
     final int totalViajes = listaCiclo.length;
     int totalPallets = 0;
     double totalHorasExtra = 0.0;
@@ -278,6 +343,19 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
 
     final inicioCiclo = _inicioCicloSeleccionado;
     final finCiclo = _finCicloSeleccionado;
+
+    String textoEstadoCiclo = 'CICLO ACTIVO (CIERRA EL 20)';
+    Color colorEstadoCiclo = Colors.greenAccent;
+    if (_estadoRevisionAdmin == 'aprobado') {
+      textoEstadoCiclo = 'PLANILLA APROBADA';
+      colorEstadoCiclo = Colors.greenAccent;
+    } else if (_estadoRevisionAdmin == 'rechazado') {
+      textoEstadoCiclo = 'PLANILLA OBSERVADA';
+      colorEstadoCiclo = Colors.amberAccent;
+    } else if (!_esCicloAbierto) {
+      textoEstadoCiclo = 'CERRADA • EN REVISIÓN';
+      colorEstadoCiclo = Colors.orangeAccent;
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -313,7 +391,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 1. SELECTOR DE CICLO AUTOMÁTICO (21 AL 20)
                   Container(
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
@@ -331,25 +408,21 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
-                                color: _esCicloAbierto
-                                    ? Colors.green.withOpacity(0.2)
-                                    : Colors.blueGrey.withOpacity(0.3),
+                                color: Colors.white.withOpacity(0.12),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Row(
                                 children: [
                                   Icon(
-                                    _esCicloAbierto ? Icons.autorenew : Icons.lock_clock,
+                                    _esCicloAbierto ? Icons.autorenew : Icons.verified_outlined,
                                     size: 13,
-                                    color: _esCicloAbierto ? Colors.greenAccent : Colors.white70,
+                                    color: colorEstadoCiclo,
                                   ),
                                   const SizedBox(width: 5),
                                   Text(
-                                    _esCicloAbierto
-                                        ? 'CICLO EN CURSO (CIERRA EL DÍA 20)'
-                                        : 'PLANILLA RENDIDA / CERRADA',
+                                    textoEstadoCiclo,
                                     style: TextStyle(
-                                      color: _esCicloAbierto ? Colors.greenAccent : Colors.white70,
+                                      color: colorEstadoCiclo,
                                       fontSize: 10,
                                       fontWeight: FontWeight.bold,
                                     ),
@@ -365,7 +438,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                         ),
                         const SizedBox(height: 14),
 
-                        // Navegador de meses del ciclo (21 al 20)
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -412,7 +484,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                           child: Divider(color: Colors.white12, height: 1),
                         ),
 
-                        // Contadores operativos del ciclo (CERO DINERO)
                         Row(
                           children: [
                             _buildMetricaCiclo(
@@ -441,7 +512,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
 
                   const SizedBox(height: 16),
 
-                  // 2. BUSCADOR Y FILTRO DE FECHAS ESTILO CARTOLA BANCARIA
                   Row(
                     children: [
                       Expanded(
@@ -526,7 +596,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
 
                   const SizedBox(height: 18),
 
-                  // 3. CABECERA DE CARTOLA DE MOVIMIENTOS
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -572,7 +641,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                     ...listaCiclo.asMap().entries.map((entry) {
                       final idx = entry.key;
                       final viaje = entry.value;
-                      // Numeración correlativa de la vuelta dentro del ciclo
                       final numeroVuelta = totalViajes - idx;
                       return _buildItemCartola(viaje, numeroVuelta);
                     }),
@@ -643,7 +711,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Caja de fecha estilo cartola bancaria
             Container(
               width: 50,
               padding: const EdgeInsets.symmetric(vertical: 8),
@@ -666,7 +733,6 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
             ),
             const SizedBox(width: 12),
 
-            // Cuerpo del movimiento
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
