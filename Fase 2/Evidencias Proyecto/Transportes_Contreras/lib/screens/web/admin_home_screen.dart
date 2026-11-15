@@ -8,7 +8,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/admin_shell.dart';
 import 'asignar_viaje_screen.dart';
 import 'web_map_helper.dart';
-
+import 'gestion_viajes_asignados_screen.dart';
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
 
@@ -1875,6 +1875,18 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         onPressed: () {},
         icon: const Icon(Icons.picture_as_pdf, size: 16),
         label: const Text('REPORTES PDF', style: TextStyle(fontSize: 12)),
+        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
+      ),
+      OutlinedButton.icon(
+        onPressed: () => Navigator.of(context).push(
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => const GestionViajesAsignadosScreen(),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          ),
+        ),
+        icon: const Icon(Icons.edit_road_outlined, size: 16, color: AppColors.primary),
+        label: const Text('GESTIONAR / CANCELAR VIAJES', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary)),
         style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
       ),
     ];
