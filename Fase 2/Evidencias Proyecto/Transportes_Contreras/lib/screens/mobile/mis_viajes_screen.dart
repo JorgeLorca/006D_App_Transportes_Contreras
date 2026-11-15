@@ -1011,54 +1011,81 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
           children: [
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Icon(
-                        esRechazado ? Icons.flag_rounded : Icons.local_shipping_outlined,
-                        size: 18,
-                        color: esRechazado ? _redColor : _primaryColor,
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Icon(
+                              esRechazado ? Icons.flag_rounded : Icons.local_shipping_outlined,
+                              size: 18,
+                              color: esRechazado ? _redColor : _primaryColor,
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                idCarga,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(width: 8),
-                      Text(idCarga, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      if (regionNombre.isNotEmpty) ...[
-                        const SizedBox(width: 8),
-                        Text('• $regionNombre', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                      ],
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: esRechazado
+                              ? const Color(0xFFFEE2E2)
+                              : (esEnCurso ? _orangeColor : const Color(0xFFE2E8F0)),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (esRechazado) ...[
+                              Icon(Icons.flag, size: 12, color: _redColor),
+                              const SizedBox(width: 4),
+                            ],
+                            Text(
+                              esRechazado
+                                  ? 'VIAJE RECHAZADO'
+                                  : (esEnCurso ? 'EN CURSO' : 'PENDIENTE'),
+                              style: TextStyle(
+                                color: esRechazado
+                                    ? _redColor
+                                    : (esEnCurso ? Colors.white : const Color(0xFF475569)),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: esRechazado
-                          ? const Color(0xFFFEE2E2)
-                          : (esEnCurso ? _orangeColor : const Color(0xFFE2E8F0)),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                  if (regionNombre.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Row(
                       children: [
-                        if (esRechazado) ...[
-                          Icon(Icons.flag, size: 12, color: _redColor),
-                          const SizedBox(width: 4),
-                        ],
-                        Text(
-                          esRechazado
-                              ? 'VIAJE RECHAZADO'
-                              : (esEnCurso ? 'EN CURSO' : 'PENDIENTE'),
-                          style: TextStyle(
-                            color: esRechazado
-                                ? _redColor
-                                : (esEnCurso ? Colors.white : const Color(0xFF475569)),
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
+                        const Icon(Icons.map_outlined, size: 13, color: Colors.grey),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            regionNombre,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
                           ),
                         ),
                       ],
                     ),
-                  )
+                  ],
                 ],
               ),
             ),

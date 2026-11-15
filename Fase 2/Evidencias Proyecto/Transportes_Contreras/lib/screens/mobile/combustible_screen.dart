@@ -528,7 +528,7 @@ class _CombustibleScreenState extends State<CombustibleScreen> {
             clipBehavior: Clip.none,
             children: [
               Container(
-                height: 150,
+                height: 176,
                 width: double.infinity,
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
@@ -545,7 +545,7 @@ class _CombustibleScreenState extends State<CombustibleScreen> {
                       child: Icon(Icons.local_gas_station, size: 140, color: Colors.white.withOpacity(0.07)),
                     ),
                     const Padding(
-                      padding: EdgeInsets.fromLTRB(20, 24, 20, 16),
+                      padding: EdgeInsets.fromLTRB(20, 22, 20, 16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -553,7 +553,7 @@ class _CombustibleScreenState extends State<CombustibleScreen> {
                             'Combustible',
                             style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white),
                           ),
-                          SizedBox(height: 4),
+                          SizedBox(height: 6),
                           Text(
                             'Registro histórico de consumos y cargas (Convenio AIRE)',
                             style: TextStyle(fontSize: 13, color: Colors.white70),
@@ -565,7 +565,7 @@ class _CombustibleScreenState extends State<CombustibleScreen> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 100, 16, 0),
+                padding: const EdgeInsets.fromLTRB(16, 126, 16, 0),
                 child: Row(
                   children: [
                     Expanded(

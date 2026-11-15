@@ -37,6 +37,7 @@ class TransportesContrerasApp extends StatelessWidget {
         useMaterial3: true,
         colorSchemeSeed: AppColors.primary,
         scaffoldBackgroundColor: AppColors.background,
+        canvasColor: Colors.white, // Fondo blanco para DropdownButtonFormField y menus clásicos
         fontFamily: 'Segoe UI',
         dialogTheme: const DialogThemeData(
           backgroundColor: Colors.white,
@@ -51,6 +52,12 @@ class TransportesContrerasApp extends StatelessWidget {
         popupMenuTheme: const PopupMenuThemeData(
           color: Colors.white,
           surfaceTintColor: Colors.transparent,
+        ),
+        dropdownMenuTheme: const DropdownMenuThemeData(
+          menuStyle: MenuStyle(
+            backgroundColor: WidgetStatePropertyAll(Colors.white),
+            surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
+          ),
         ),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFF0F172A),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -134,6 +135,7 @@ class _IncidentesScreenState extends State<IncidentesScreen> {
           }
         }
 
+        await SyncHelper.sincronizarTodo(_rutConductor!);
         await _cargarHistorialLocal(_rutConductor!);
       }
 
@@ -427,6 +429,13 @@ class _IncidentesScreenState extends State<IncidentesScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            tooltip: 'Recargar pantalla',
+            onPressed: _isLoading ? null : _inicializarModulo,
+          ),
+        ],
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: _colorActivo))
@@ -529,7 +538,6 @@ class _IncidentesScreenState extends State<IncidentesScreen> {
                       children: [
                         Row(
                           children: [
-                            // Corregido: touch_app_outlined en minúsculas
                             Icon(Icons.touch_app_outlined, size: 18, color: _colorActivo),
                             const SizedBox(width: 8),
                             Text(
@@ -550,63 +558,95 @@ class _IncidentesScreenState extends State<IncidentesScreen> {
                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+
+                        // Botones de selección rápida uniformes al 100% del ancho con texto tipo marquesina
+                        Column(
                           children: opcionesActuales.map((opcion) {
                             final seleccionado = _hechoPredefinido == opcion;
-                            return ChoiceChip(
-                              label: Text(
-                                opcion,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: seleccionado ? FontWeight.bold : FontWeight.normal,
-                                  color: seleccionado ? Colors.white : _primaryColor,
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8.0),
+                              child: Material(
+                                color: seleccionado ? _colorActivo : const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(10),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(10),
+                                  onTap: () {
+                                    setState(() {
+                                      _hechoPredefinido = opcion;
+                                      _actualizarTextoPredefinido();
+                                    });
+                                  },
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: seleccionado ? _colorActivo : Colors.grey.shade300,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        if (seleccionado) ...[
+                                          const Icon(Icons.check, size: 16, color: Colors.white),
+                                          const SizedBox(width: 8),
+                                        ],
+                                        // En el botón de selección rápida, pásale seleccionado: seleccionado
+                                        Expanded(
+                                          child: _TextoMarquesina(
+                                            texto: opcion,
+                                            seleccionado: seleccionado,
+                                            style: TextStyle(
+                                              fontSize: 12.5,
+                                              fontWeight: seleccionado ? FontWeight.bold : FontWeight.w500,
+                                              color: seleccionado ? Colors.white : _primaryColor,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
                               ),
-                              selected: seleccionado,
-                              selectedColor: _colorActivo,
-                              backgroundColor: const Color(0xFFF1F5F9),
-                              onSelected: (_) {
-                                setState(() {
-                                  _hechoPredefinido = opcion;
-                                  _actualizarTextoPredefinido();
-                                });
-                              },
                             );
                           }).toList(),
                         ),
 
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 12),
 
                         const Text(
                           '¿Cuál es la situación / gravedad?',
                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            _buildChipGravedad(
-                              valor: 'leve',
-                              titulo: 'Leve / Todo bien',
-                              subtitulo: 'En marcha lenta',
-                              color: Colors.green.shade600,
-                            ),
-                            const SizedBox(width: 8),
-                            _buildChipGravedad(
-                              valor: 'moderada',
-                              titulo: 'Moderado',
-                              subtitulo: 'Pista complicada',
-                              color: _yellowMechColor,
-                            ),
-                            const SizedBox(width: 8),
-                            _buildChipGravedad(
-                              valor: 'grave',
-                              titulo: 'Grave / Crítico',
-                              subtitulo: 'Detenido / Urgente',
-                              color: _redAccidentColor,
-                            ),
-                          ],
+                        // IntrinsicHeight asegura que Leve, Moderado y Grave tengan exactamente la misma altura y ancho
+                        IntrinsicHeight(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _buildChipGravedad(
+                                valor: 'leve',
+                                titulo: 'Leve / Todo bien',
+                                subtitulo: 'En marcha lenta',
+                                color: Colors.green.shade600,
+                              ),
+                              const SizedBox(width: 8),
+                              _buildChipGravedad(
+                                valor: 'moderada',
+                                titulo: 'Moderado',
+                                subtitulo: 'Pista complicada',
+                                color: _yellowMechColor,
+                              ),
+                              const SizedBox(width: 8),
+                              _buildChipGravedad(
+                                valor: 'grave',
+                                titulo: 'Grave / Crítico',
+                                subtitulo: 'Detenido / Urgente',
+                                color: _redAccidentColor,
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -817,22 +857,33 @@ class _IncidentesScreenState extends State<IncidentesScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // Fila superior solo con el punto de color y el título completo
+                            Row(
+                              children: [
+                                Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '$tituloTipo • $grav',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: _primaryColor),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(desc, style: const TextStyle(fontSize: 12, color: Color(0xFF334155))),
+                            const SizedBox(height: 8),
+                            // Fila inferior con fecha a la izquierda y estado sincronizado pegado a la derecha
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      width: 10,
-                                      height: 10,
-                                      decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      '$tituloTipo • $grav',
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: _primaryColor),
-                                    ),
-                                  ],
+                                Text(
+                                  _formatearFechaHora(dt),
+                                  style: const TextStyle(fontSize: 10.5, color: Colors.grey),
                                 ),
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -850,13 +901,6 @@ class _IncidentesScreenState extends State<IncidentesScreen> {
                                   ),
                                 ),
                               ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(desc, style: const TextStyle(fontSize: 12, color: Color(0xFF334155))),
-                            const SizedBox(height: 4),
-                            Text(
-                              _formatearFechaHora(dt),
-                              style: const TextStyle(fontSize: 10, color: Colors.grey),
                             ),
                           ],
                         ),
@@ -953,7 +997,8 @@ class _IncidentesScreenState extends State<IncidentesScreen> {
         },
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          height: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
           decoration: BoxDecoration(
             color: activo ? color.withOpacity(0.12) : const Color(0xFFF8FAFC),
             borderRadius: BorderRadius.circular(12),
@@ -963,6 +1008,7 @@ class _IncidentesScreenState extends State<IncidentesScreen> {
             ),
           ),
           child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 activo ? Icons.check_circle : Icons.circle_outlined,
@@ -979,6 +1025,7 @@ class _IncidentesScreenState extends State<IncidentesScreen> {
                   color: activo ? color : _primaryColor,
                 ),
               ),
+              const SizedBox(height: 2),
               Text(
                 subtitulo,
                 textAlign: TextAlign.center,
@@ -987,6 +1034,98 @@ class _IncidentesScreenState extends State<IncidentesScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Widget tipo cartel/marquesina que desplaza automáticamente el texto horizontalmente
+/// solo cuando su ancho supera el espacio disponible en el botón.
+class _TextoMarquesina extends StatefulWidget {
+  final String texto;
+  final TextStyle style;
+  final bool seleccionado;
+
+  const _TextoMarquesina({
+    required this.texto,
+    required this.style,
+    required this.seleccionado,
+  });
+
+  @override
+  State<_TextoMarquesina> createState() => _TextoMarquesinaState();
+}
+
+class _TextoMarquesinaState extends State<_TextoMarquesina> {
+  final ScrollController _scrollCtrl = ScrollController();
+  int _cicloId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reiniciarCiclo());
+  }
+
+  @override
+  void didUpdateWidget(covariant _TextoMarquesina oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.texto != widget.texto || oldWidget.seleccionado != widget.seleccionado) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _reiniciarCiclo());
+    }
+  }
+
+  void _reiniciarCiclo() {
+    _cicloId++;
+    if (!mounted || !_scrollCtrl.hasClients) return;
+    _scrollCtrl.jumpTo(0);
+
+    final maxScroll = _scrollCtrl.position.maxScrollExtent;
+    if (maxScroll > 1) {
+      _ejecutarDesplazamiento(_cicloId, maxScroll);
+    }
+  }
+
+  Future<void> _ejecutarDesplazamiento(int idActivo, double maxScroll) async {
+    while (mounted && idActivo == _cicloId && _scrollCtrl.hasClients) {
+      await Future.delayed(const Duration(milliseconds: 1100));
+      if (!mounted || idActivo != _cicloId || !_scrollCtrl.hasClients) break;
+
+      final duracionMs = (maxScroll * 28).clamp(1100, 5500).toInt();
+      await _scrollCtrl.animateTo(
+        maxScroll,
+        duration: Duration(milliseconds: duracionMs),
+        curve: Curves.linear,
+      );
+
+      await Future.delayed(const Duration(milliseconds: 1100));
+      if (!mounted || idActivo != _cicloId || !_scrollCtrl.hasClients) break;
+
+      await _scrollCtrl.animateTo(
+        0,
+        duration: const Duration(milliseconds: 650),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _cicloId++;
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      controller: _scrollCtrl,
+      scrollDirection: Axis.horizontal,
+      physics: const NeverScrollableScrollPhysics(),
+      child: Text(
+        widget.texto,
+        maxLines: 1,
+        softWrap: false,
+        style: widget.style,
       ),
     );
   }

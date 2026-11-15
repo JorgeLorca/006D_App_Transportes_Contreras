@@ -19,38 +19,30 @@ class MonitoreoAsistenciaScreen extends StatefulWidget {
 
 class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
   static const _registrosPorPagina = 10;
-  static const _meses = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
 
   /// Ancho relativo de las columnas: conductor, tipo, fecha, hora.
   static const _flex = [5, 2, 3, 2];
 
-  /// El primer período de asistencia parte el 1 de noviembre de 2026 y dura
-  /// 45 días; el siguiente parte justo después, y así.
-  static final _inicioBase = DateTime(2026, 11, 1);
-  static const _diasPeriodo = 45;
-
   final _repo = AsistenciaRepository();
+  final ScrollController _tablaScrollController = ScrollController();
 
   List<RegistroAsistencia> _registros = [];
   bool _cargando = true;
   String? _error;
   String _busqueda = '';
   int _pagina = 0;
-
-  /// Inicio del período vigente (solo informativo, no filtra los datos).
-  DateTime get _inicioPeriodo {
-    final hoy = DateTime.now();
-    final dias = DateTime(hoy.year, hoy.month, hoy.day).difference(_inicioBase).inDays;
-    final n = dias < 0 ? 0 : dias ~/ _diasPeriodo;
-    return _inicioBase.add(Duration(days: n * _diasPeriodo));
-  }
-
-  DateTime get _finPeriodo => _inicioPeriodo.add(const Duration(days: _diasPeriodo));
+  DateTime _fechaSeleccionada = DateTime.now();
 
   @override
   void initState() {
     super.initState();
     _cargar();
+  }
+
+  @override
+  void dispose() {
+    _tablaScrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _cargar() async {
@@ -76,12 +68,49 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
     }
   }
 
+  bool _mismoDia(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
   List<RegistroAsistencia> get _filtrados {
     final texto = _normalizar(_busqueda.trim());
-    if (texto.isEmpty) return _registros;
-    return _registros
-        .where((r) => _normalizar(r.conductorNombre).contains(texto) || _normalizar(r.conductorRut).contains(texto))
-        .toList();
+    return _registros.where((r) {
+      if (!_mismoDia(r.horaEvento, _fechaSeleccionada)) return false;
+      if (texto.isNotEmpty) {
+        return _normalizar(r.conductorNombre).contains(texto) ||
+            _normalizar(r.conductorRut).contains(texto);
+      }
+      return true;
+    }).toList();
+  }
+
+  Future<void> _seleccionarFecha() async {
+    final now = DateTime.now();
+    final elegida = await showDatePicker(
+      context: context,
+      initialDate: _fechaSeleccionada,
+      firstDate: DateTime(2024),
+      lastDate: DateTime(now.year + 2),
+      helpText: 'Seleccionar día de asistencia',
+      cancelText: 'CANCELAR',
+      confirmText: 'ACEPTAR',
+      locale: const Locale('es', 'CL'),
+    );
+    if (elegida != null) {
+      setState(() {
+        _fechaSeleccionada = elegida;
+        _pagina = 0;
+      });
+    }
+  }
+
+  String get _rotuloFecha {
+    final hoy = DateTime.now();
+    final fechaFmt = '${_dos(_fechaSeleccionada.day)}/${_dos(_fechaSeleccionada.month)}/${_fechaSeleccionada.year}';
+    if (_mismoDia(_fechaSeleccionada, hoy)) {
+      return 'Hoy ($fechaFmt)';
+    }
+    return fechaFmt;
   }
 
   static String _normalizar(String s) =>
@@ -91,11 +120,6 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
   static String _fecha(DateTime d) => '${_dos(d.day)}-${_dos(d.month)}-${d.year}';
   static String _hora(DateTime d) => '${_dos(d.hour)}:${_dos(d.minute)}';
 
-  String get _rotuloPeriodo {
-    final i = _inicioPeriodo, f = _finPeriodo;
-    return '${i.day} ${_meses[i.month - 1]} - ${f.day} ${_meses[f.month - 1]}, ${f.year}';
-  }
-
   @override
   Widget build(BuildContext context) {
     final filtrados = _filtrados;
@@ -103,14 +127,15 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
     final totalPaginas = filtrados.isEmpty ? 1 : (filtrados.length / _registrosPorPagina).ceil();
     final pagina = _pagina >= totalPaginas ? totalPaginas - 1 : _pagina;
     final visibles = filtrados.skip(pagina * _registrosPorPagina).take(_registrosPorPagina).toList();
+    final bool esPantallaPequena = MediaQuery.of(context).size.width < 750;
 
     return AdminShell(
-      selectedIndex: 16, // TODO: ajusta al índice de "Monitoreo de asistencia" en tu menú
+      selectedIndex: 16,
       title: 'Monitoreo de asistencia',
       subtitle: 'Revise las marcas de asistencia de los conductores.',
       eyebrowIcon: Icons.fact_check_outlined,
       child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        padding: EdgeInsets.symmetric(horizontal: esPantallaPequena ? 16 : 32, vertical: 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -148,28 +173,32 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const Text(
-          'PERÍODO DE ASISTENCIA',
+          'DÍA DE ASISTENCIA',
           style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.6, color: AppColors.textSecondary),
         ),
         const SizedBox(height: 6),
-        Container(
-          height: 42,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.calendar_today_outlined, size: 16, color: AppColors.primary),
-              const SizedBox(width: 8),
-              Text(
-                _rotuloPeriodo,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-              ),
-            ],
+        InkWell(
+          onTap: _seleccionarFecha,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            height: 42,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.calendar_today_outlined, size: 16, color: AppColors.primary),
+                const SizedBox(width: 8),
+                Text(
+                  _rotuloFecha,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -224,7 +253,7 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
           SizedBox(
             width: ancho,
             child: StatCard(
-              label: 'Registros del período',
+              label: 'Registros del día',
               value: '$registros',
               icon: Icons.history,
               iconColor: AppColors.primary,
@@ -257,14 +286,17 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
       cuerpo = _buildError();
     } else if (total == 0) {
       cuerpo = Padding(
-        padding: const EdgeInsets.symmetric(vertical: 48),
+        padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 16),
         child: Center(
           child: Column(
             children: [
               const Icon(Icons.event_busy_outlined, size: 32, color: AppColors.textSecondary),
               const SizedBox(height: 10),
               Text(
-                _registros.isEmpty ? 'No hay registros de asistencia.' : 'Ningún conductor coincide con la búsqueda.',
+                _busqueda.trim().isNotEmpty
+                    ? 'Ningún conductor coincide con la búsqueda para este día.'
+                    : 'No hay registros de asistencia para $_rotuloFecha.',
+                textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
               ),
             ],
@@ -274,8 +306,33 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
     } else {
       cuerpo = Column(
         children: [
-          _buildCabecera(),
-          for (final r in visibles) _buildFila(r),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final bool usarScrollLateral = constraints.maxWidth < 720;
+              final Widget contenidoTabla = Column(
+                children: [
+                  _buildCabecera(),
+                  for (final r in visibles) _buildFila(r),
+                ],
+              );
+
+              if (usarScrollLateral) {
+                return Scrollbar(
+                  controller: _tablaScrollController,
+                  thumbVisibility: true,
+                  child: SingleChildScrollView(
+                    controller: _tablaScrollController,
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(
+                      width: 680,
+                      child: contenidoTabla,
+                    ),
+                  ),
+                );
+              }
+              return contenidoTabla;
+            },
+          ),
           PaginacionTabla(
             total: total,
             pagina: pagina,
@@ -331,7 +388,7 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
   }
 
   Widget _buildFila(RegistroAsistencia r) {
-    final local = r.horaEvento.toLocal();
+    final fechaEvento = r.horaEvento;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
       decoration: const BoxDecoration(border: Border(top: BorderSide(color: AppColors.border))),
@@ -339,8 +396,8 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
         children: [
           _celda(0, _buildConductor(r.conductorNombre)),
           _celda(1, Align(alignment: Alignment.centerLeft, child: _buildTipo(r.tipoEvento))),
-          _celda(2, _datoConIcono(Icons.calendar_today_outlined, _fecha(local))),
-          _celda(3, _datoConIcono(Icons.schedule, _hora(local))),
+          _celda(2, _datoConIcono(Icons.calendar_today_outlined, _fecha(fechaEvento))),
+          _celda(3, _datoConIcono(Icons.schedule, _hora(fechaEvento))),
         ],
       ),
     );
