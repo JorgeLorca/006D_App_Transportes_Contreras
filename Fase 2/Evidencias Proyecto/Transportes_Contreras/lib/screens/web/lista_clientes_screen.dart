@@ -641,52 +641,6 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
           ),
           const SizedBox(height: 24),
 
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final double cardWidth = constraints.maxWidth > 900
-                  ? (constraints.maxWidth - (16 * 2)) / 3
-                  : double.infinity;
-
-              return Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                children: [
-                  SizedBox(
-                    width: cardWidth,
-                    child: _buildTarjetaMetrica(
-                      label: 'CLIENTES TOTALES',
-                      valor: '${_datosOriginales.length}',
-                      icono: Icons.domain,
-                      iconColor: AppColors.textSecondary,
-                      subtitulo: '↗ +8 este mes',
-                    ),
-                  ),
-                  SizedBox(
-                    width: cardWidth,
-                    child: _buildTarjetaMetrica(
-                      label: 'RECURRENCIA PROM.',
-                      valor: '94%',
-                      icono: Icons.sync_alt,
-                      iconColor: Colors.blue,
-                      subtitulo: null,
-                    ),
-                  ),
-                  SizedBox(
-                    width: cardWidth,
-                    child: _buildTarjetaMetrica(
-                      label: 'INGRESOS Q2',
-                      valor: '\$12.4M',
-                      icono: Icons.trending_up,
-                      iconColor: Colors.green,
-                      subtitulo: null,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 24),
-
           _buildBuscadorResponsivo(esPantallaPequena),
           const SizedBox(height: 24),
 
@@ -954,26 +908,6 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
       ),
     );
 
-    final Widget botonFiltros = OutlinedButton.icon(
-      onPressed: () {},
-      icon: const Icon(Icons.tune, size: 16, color: Color(0xFF475569)),
-      label: const Text('Filtros Avanzados', style: TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600)),
-      style: OutlinedButton.styleFrom(
-        backgroundColor: AppColors.surfaceMuted,
-        side: const BorderSide(color: AppColors.border),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      ),
-    );
-
-    final Widget botonLimpiar = TextButton(
-      onPressed: () {
-        _searchController.clear();
-        _filtrarClientes('');
-      },
-      child: const Text('Limpiar', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary)),
-    );
-
     return Container(
       padding: const EdgeInsets.all(12.0),
       decoration: BoxDecoration(
@@ -981,30 +915,7 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.border),
       ),
-      child: esPantallaPequena
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                campoInput,
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(child: botonFiltros),
-                    const SizedBox(width: 8),
-                    botonLimpiar,
-                  ],
-                ),
-              ],
-            )
-          : Row(
-              children: [
-                Expanded(child: campoInput),
-                const SizedBox(width: 12),
-                botonFiltros,
-                const SizedBox(width: 10),
-                botonLimpiar,
-              ],
-            ),
+      child: campoInput,
     );
   }
 
@@ -1019,7 +930,7 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(10)),
-          child: Text('${_clientes.length} Resultados', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+          child: Text('${_clientes.length} ${_clientes.length == 1 ? 'cliente' : 'clientes'}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
         ),
       ],
     );
@@ -1153,45 +1064,6 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
           const Text('No se encontraron clientes registrados', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
           const SizedBox(height: 6),
           const Text('No hay clientes en la base de datos o el término ingresado no coincide.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTarjetaMetrica({
-    required String label,
-    required String valor,
-    required IconData icono,
-    required Color iconColor,
-    String? subtitulo,
-  }) {
-    return Container(
-      height: 115,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 0.5)),
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(color: iconColor.withOpacity(0.1), shape: BoxShape.circle),
-                child: Icon(icono, size: 16, color: iconColor),
-              ),
-            ],
-          ),
-          Text(valor, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          subtitulo != null
-              ? Text(subtitulo, style: const TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold))
-              : const SizedBox(height: 12),
         ],
       ),
     );

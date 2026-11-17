@@ -616,13 +616,6 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
     );
   }
 
-  int get _totalPersonal => _datosOriginales.length;
-  int get _conductoresActivos => _datosOriginales.where((t) {
-        final est = t['estado'].toString().toLowerCase();
-        return est == 'activo' || est == 'en ruta';
-      }).length;
-  int get _enRutaActual => _datosOriginales.where((t) => t['estado'].toString().toLowerCase() == 'en ruta').length;
-
   @override
   Widget build(BuildContext context) {
     final double anchoPantalla = MediaQuery.of(context).size.width;
@@ -640,7 +633,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
             builder: (context, constraints) {
               final bool esPantallaAncha = constraints.maxWidth > 750;
 
-              final Widget bloqueTitulos = const Column(
+              final Widget bloqueTitulos = Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
@@ -651,7 +644,15 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
                     ],
                   ),
                   SizedBox(height: 6),
-                  Text('Lista de Trabajadores', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 12,
+                    runSpacing: 6,
+                    children: [
+                      const Text('Lista de Trabajadores', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                      if (!_isLoading) _buildBadgeTotalTrabajadores(),
+                    ],
+                  ),
                 ],
               );
 
@@ -704,53 +705,6 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
                   children: [bloqueTitulos, const SizedBox(height: 16), bloqueBotones],
                 );
               }
-            },
-          ),
-          const SizedBox(height: 24),
-
-          // 2. Tarjetas de Métricas Responsivas
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final double cardWidth = constraints.maxWidth > 900
-                  ? (constraints.maxWidth - (16 * 2)) / 3
-                  : double.infinity;
-
-              return Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                children: [
-                  SizedBox(
-                    width: cardWidth,
-                    child: _buildTarjetaMetrica(
-                      label: 'TOTAL PERSONAL',
-                      valor: '$_totalPersonal',
-                      icono: Icons.people_outline,
-                      colorIcono: const Color(0xFF0284C7),
-                      colorFondo: const Color(0xFFE0F2FE),
-                    ),
-                  ),
-                  SizedBox(
-                    width: cardWidth,
-                    child: _buildTarjetaMetrica(
-                      label: 'CONDUCTORES ACTIVOS',
-                      valor: '$_conductoresActivos',
-                      icono: Icons.verified_outlined,
-                      colorIcono: AppColors.success,
-                      colorFondo: AppColors.successBg,
-                    ),
-                  ),
-                  SizedBox(
-                    width: cardWidth,
-                    child: _buildTarjetaMetrica(
-                      label: 'EN RUTA ACTUAL',
-                      valor: '$_enRutaActual',
-                      icono: Icons.location_on_outlined,
-                      colorIcono: const Color(0xFFD97706),
-                      colorFondo: const Color(0xFFFEF3C7),
-                    ),
-                  ),
-                ],
-              );
             },
           ),
           const SizedBox(height: 24),
@@ -826,6 +780,30 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
 
           // 6. Footer
           _buildFooterResponsivo(esPantallaPequena),
+        ],
+      ),
+    );
+  }
+
+  /// Pastilla con el total de trabajadores, junto al título.
+  Widget _buildBadgeTotalTrabajadores() {
+    final total = _datosOriginales.length;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.primary.withOpacity(0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.people_alt_outlined, size: 15, color: AppColors.primary),
+          const SizedBox(width: 6),
+          Text(
+            '$total ${total == 1 ? 'trabajador' : 'trabajadores'}',
+            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: AppColors.primary),
+          ),
         ],
       ),
     );
@@ -1082,29 +1060,6 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
       ),
     );
 
-    final Widget botonFiltrosIcono = OutlinedButton(
-      onPressed: () {},
-      style: OutlinedButton.styleFrom(
-        backgroundColor: AppColors.surfaceMuted,
-        side: const BorderSide(color: AppColors.border),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      ),
-      child: const Icon(Icons.tune, size: 18, color: Color(0xFF475569)),
-    );
-
-    final Widget botonFiltrosTexto = OutlinedButton.icon(
-      onPressed: () {},
-      icon: const Icon(Icons.tune, size: 16, color: Color(0xFF475569)),
-      label: const Text('Filtros Avanzados', style: TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600)),
-      style: OutlinedButton.styleFrom(
-        backgroundColor: AppColors.surfaceMuted,
-        side: const BorderSide(color: AppColors.border),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      ),
-    );
-
     final Widget botonRecargar = IconButton(
       tooltip: 'Refrescar trabajadores',
       icon: const Icon(Icons.refresh, size: 20, color: AppColors.textSecondary),
@@ -1160,13 +1115,7 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
           ? Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Expanded(child: campoInput),
-                    const SizedBox(width: 8),
-                    botonFiltrosIcono,
-                  ],
-                ),
+                campoInput,
                 const SizedBox(height: 10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1180,8 +1129,6 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
           : Row(
               children: [
                 Expanded(child: campoInput),
-                const SizedBox(width: 12),
-                botonFiltrosTexto,
                 const SizedBox(width: 16),
                 selectorOrden,
                 const SizedBox(width: 8),
@@ -1308,42 +1255,6 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
           const Text('No se encontraron trabajadores registrados', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
           const SizedBox(height: 6),
           const Text('No hay personal en la base de datos o el criterio de búsqueda no arrojó resultados.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTarjetaMetrica({
-    required String label,
-    required String valor,
-    required IconData icono,
-    required Color colorIcono,
-    required Color colorFondo,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 0.6)),
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(color: colorFondo, borderRadius: BorderRadius.circular(10)),
-                child: Icon(icono, size: 20, color: colorIcono),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(valor, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.textPrimary, height: 1.1)),
         ],
       ),
     );

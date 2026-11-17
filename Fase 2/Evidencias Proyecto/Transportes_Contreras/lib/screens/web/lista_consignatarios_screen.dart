@@ -600,32 +600,6 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
       ),
     );
 
-    final Widget botonFiltrosIcono = OutlinedButton(
-      onPressed: () {},
-      style: OutlinedButton.styleFrom(
-        backgroundColor: AppColors.surfaceMuted,
-        side: const BorderSide(color: AppColors.border),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      ),
-      child: const Icon(Icons.filter_list, size: 18, color: Color(0xFF475569)),
-    );
-
-    final Widget botonFiltrosTexto = OutlinedButton.icon(
-      onPressed: () {},
-      icon: const Icon(Icons.filter_list, size: 16, color: Color(0xFF475569)),
-      label: const Text(
-        'Filtros',
-        style: TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600),
-      ),
-      style: OutlinedButton.styleFrom(
-        backgroundColor: AppColors.surfaceMuted,
-        side: const BorderSide(color: AppColors.border),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      ),
-    );
-
     return Container(
       padding: const EdgeInsets.all(12.0),
       decoration: BoxDecoration(
@@ -633,21 +607,7 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.border),
       ),
-      child: esPantallaPequena
-          ? Row(
-              children: [
-                Expanded(child: campoInput),
-                const SizedBox(width: 8),
-                botonFiltrosIcono,
-              ],
-            )
-          : Row(
-              children: [
-                Expanded(child: campoInput),
-                const SizedBox(width: 12),
-                botonFiltrosTexto,
-              ],
-            ),
+      child: campoInput,
     );
   }
 
