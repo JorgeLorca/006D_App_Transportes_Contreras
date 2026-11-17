@@ -5,6 +5,7 @@ import '../../repositories/planillas_repository.dart';
 import '../../repositories/repository_exception.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/admin_shell.dart';
+import '../../widgets/cartola_rendiciones_tab.dart';
 import '../../widgets/detalle_planilla_dialog.dart';
 import '../../widgets/paginacion_tabla.dart';
 import '../../widgets/stat_card.dart';
@@ -30,14 +31,17 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
 
   static const _meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
-  /// Ancho relativo: trabajador, RUT, ciclo, vueltas, pallets, estado, acción, descarga.
-  static const _flex = [4, 3, 3, 2, 2, 2, 2, 3];
+  /// Ancho relativo: trabajador, RUT, ciclo, vueltas, pallets, estado, acción.
+  static const _flex = [4, 3, 3, 2, 2, 2, 3];
 
   static const _estiloDato = TextStyle(fontSize: 13, color: AppColors.textPrimary);
 
   final _repo = PlanillasRepository();
 
   List<PlanillaMensual> _planillas = [];
+
+  /// Viajes completados (todos los conductores) del ciclo en curso.
+  int _viajesCicloActual = 0;
   bool _cargando = true;
   String? _error;
 
@@ -49,6 +53,8 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
   /// no dispara onSelected, por eso se usa un valor real).
   static const _todosLosCiclos = -1;
   int _pagina = 0;
+
+  int _tabActual = 0; // 0 = Planillas de conductores, 1 = Cartola histórica
 
   @override
   void initState() {
@@ -64,10 +70,15 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
       _error = null;
     });
     try {
-      final planillas = await _repo.obtenerTodas();
+      final ciclo = _Ciclo.de(DateTime.now());
+      final resultados = await Future.wait<Object>([
+        _repo.obtenerTodas(),
+        _repo.contarViajesCompletados(desde: ciclo.inicio, hasta: ciclo.fin),
+      ]);
       if (!mounted) return;
       setState(() {
-        _planillas = planillas;
+        _planillas = resultados[0] as List<PlanillaMensual>;
+        _viajesCicloActual = resultados[1] as int;
         _cargando = false;
       });
     } on RepositoryException catch (e) {
@@ -124,6 +135,9 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
   // ------------------------------------------------------------- formatos
 
   static String _fechaCorta(DateTime d) => '${d.day.toString().padLeft(2, '0')} ${_meses[d.month - 1]}';
+
+  /// "21 Oct – 20 Nov"
+  static String _rangoCorto(DateTime inicio, DateTime fin) => '${_fechaCorta(inicio)} – ${_fechaCorta(fin)}';
 
   /// "21 Oct – 20 Nov 2026"
   static String _rotuloCiclo(DateTime inicio, DateTime fin) => '${_fechaCorta(inicio)} – ${_fechaCorta(fin)} ${fin.year}';
@@ -185,22 +199,9 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
     );
     if (resultado == null || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          resultado == PlanillaMensual.estadoAprobada
-              ? 'Planilla aprobada correctamente.'
-              : 'Planilla rechazada correctamente.',
-        ),
-      ),
+      const SnackBar(content: Text('Planilla aprobada correctamente.')),
     );
     await _cargar();
-  }
-
-  /// PENDIENTE: generar y descargar el PDF de la planilla.
-  void _descargarPdf(PlanillaMensual p) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('La descarga en PDF estará disponible próximamente.')),
-    );
   }
 
   Widget _botonGestionar(PlanillaMensual p) {
@@ -217,24 +218,6 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
       child: const Text(
         'GESTIONAR',
         style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.3),
-      ),
-    );
-  }
-
-  Widget _botonDescargar(PlanillaMensual p) {
-    return OutlinedButton.icon(
-      onPressed: () => _descargarPdf(p),
-      icon: const Icon(Icons.picture_as_pdf_outlined, size: 15),
-      label: const Text(
-        'DESCARGAR PDF',
-        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.3),
-      ),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: AppColors.textPrimary,
-        side: const BorderSide(color: AppColors.border),
-        minimumSize: const Size(0, 34),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
@@ -261,20 +244,71 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildEncabezado(),
+            const SizedBox(height: 20),
+            _buildTabs(),
             const SizedBox(height: 24),
-            _buildControles(),
-            if (_estadoFiltro != null) ...[
-              const SizedBox(height: 12),
-              _buildChipFiltroActivo(),
-            ],
-            const SizedBox(height: 24),
-            _buildMetricas(),
-            const SizedBox(height: 24),
-            _buildTabla(
-              visibles: visibles,
-              total: filtradas.length,
-              pagina: pagina,
-            ),
+            if (_tabActual == 0) ...[
+              _buildControles(),
+              if (_estadoFiltro != null) ...[
+                const SizedBox(height: 12),
+                _buildChipFiltroActivo(),
+              ],
+              const SizedBox(height: 24),
+              _buildMetricas(),
+              const SizedBox(height: 24),
+              _buildTabla(
+                visibles: visibles,
+                total: filtradas.length,
+                pagina: pagina,
+              ),
+            ] else
+              CartolaRendicionesTab(
+                planillas: _planillas,
+                repo: _repo,
+                cargando: _cargando,
+                error: _error,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabs() {
+    const tabs = ['Planillas de conductores', 'Cartola histórica'];
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < tabs.length; i++)
+              InkWell(
+                onTap: () => setState(() => _tabActual = i),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color: _tabActual == i ? AppColors.primary : Colors.transparent,
+                        width: 3,
+                      ),
+                    ),
+                  ),
+                  child: Text(
+                    tabs[i],
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: _tabActual == i ? FontWeight.w700 : FontWeight.w500,
+                      color: _tabActual == i ? AppColors.primary : AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -495,9 +529,19 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
     );
   }
 
-  /// Las 3 tarjetas ya están con su diseño, pero todavía NO son funcionales:
-  /// sus estadísticas están por definirse, por eso muestran "—".
+  /// Indicadores del encabezado. El admin revisa un ciclo recién cuando
+  /// termina (día 20), por eso el total de viajes es del ciclo en curso y las
+  /// otras dos tarjetas miran las planillas del ciclo anterior.
   Widget _buildMetricas() {
+    final actual = _Ciclo.de(DateTime.now());
+    final anterior = actual.anterior;
+    final delAnterior = _planillas.where((p) => anterior.coincide(p.inicioCiclo)).toList();
+    final aprobadas = delAnterior.where((p) => p.aprobada).length;
+    final porRevisar = delAnterior.length - aprobadas;
+
+    final listo = !_cargando && _error == null;
+    final rangoAnterior = _rangoCorto(anterior.inicio, anterior.fin);
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final anchoTarjeta = constraints.maxWidth > 900 ? (constraints.maxWidth - 32) / 3 : double.infinity;
@@ -508,29 +552,29 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
           children: [
             SizedBox(
               width: anchoTarjeta,
-              child: const StatCard(
-                label: 'Total viajes del ciclo',
-                value: '—',
+              child: StatCard(
+                label: 'Total viajes del ciclo actual (${_rangoCorto(actual.inicio, actual.fin)})',
+                value: listo ? '$_viajesCicloActual' : '—',
                 icon: Icons.receipt_long_outlined,
                 iconColor: AppColors.primary,
               ),
             ),
             SizedBox(
               width: anchoTarjeta,
-              child: const StatCard(
-                label: 'Conductores en ruta / activos',
-                value: '—',
-                icon: Icons.local_shipping_outlined,
+              child: StatCard(
+                label: 'Planillas por revisar (ciclo $rangoAnterior)',
+                value: listo ? '$porRevisar' : '—',
+                icon: Icons.error_outline,
                 iconColor: AppColors.warning,
               ),
             ),
             SizedBox(
               width: anchoTarjeta,
-              child: const StatCard(
-                label: 'Planillas por revisar',
-                value: '—',
-                icon: Icons.error_outline,
-                iconColor: AppColors.warning,
+              child: StatCard(
+                label: 'Planillas aprobadas (ciclo $rangoAnterior)',
+                value: listo ? (delAnterior.isEmpty ? '0' : '$aprobadas de ${delAnterior.length}') : '—',
+                icon: Icons.check_circle_outline,
+                iconColor: AppColors.success,
               ),
             ),
           ],
@@ -588,13 +632,15 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
             color: AppColors.surfaceMuted,
-            child: Row(
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 10,
+              runSpacing: 8,
               children: [
                 const Text(
                   'Listado de Trabajadores y Planillas',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                 ),
-                const SizedBox(width: 10),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
@@ -684,7 +730,6 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
               _celda(4, const Text('PALLETS', style: estiloCabecera)),
               _celda(5, const Text('ESTADO', style: estiloCabecera)),
               _celda(6, const Text('ACCIÓN', style: estiloCabecera)),
-              _celda(7, const Text('DESCARGA', style: estiloCabecera)),
             ],
           ),
         ),
@@ -708,7 +753,6 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
                 _celda(4, Text('${p.palletsMovidos}', style: _estiloDato)),
                 _celda(5, Align(alignment: Alignment.centerLeft, child: _EstadoBadge(p.estado))),
                 _celda(6, Align(alignment: Alignment.centerLeft, child: _botonGestionar(p))),
-                _celda(7, Align(alignment: Alignment.centerLeft, child: _botonDescargar(p))),
               ],
             ),
           ),
@@ -746,11 +790,7 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 8,
-                  children: [_botonGestionar(p), _botonDescargar(p)],
-                ),
+                _botonGestionar(p),
               ],
             ),
           ),
@@ -793,6 +833,31 @@ class _ListaRendicionesScreenState extends State<ListaRendicionesScreen> {
   }
 }
 
+/// Ciclo de rendición: del 21 de un mes al 20 del siguiente.
+class _Ciclo {
+  const _Ciclo(this.inicio, this.fin);
+
+  static const _diaCierre = 20;
+
+  final DateTime inicio;
+  final DateTime fin;
+
+  /// Ciclo que contiene el día [d] (el 20 todavía pertenece al ciclo que cierra).
+  factory _Ciclo.de(DateTime d) {
+    final inicio = d.day > _diaCierre ? DateTime(d.year, d.month, _diaCierre + 1) : DateTime(d.year, d.month - 1, _diaCierre + 1);
+    return _Ciclo(inicio, DateTime(inicio.year, inicio.month + 1, _diaCierre));
+  }
+
+  _Ciclo get anterior {
+    final ini = DateTime(inicio.year, inicio.month - 1, _diaCierre + 1);
+    return _Ciclo(ini, DateTime(inicio.year, inicio.month, _diaCierre));
+  }
+
+  /// true si [otroInicio] es el inicio de este ciclo (compara solo la fecha).
+  bool coincide(DateTime otroInicio) =>
+      otroInicio.year == inicio.year && otroInicio.month == inicio.month && otroInicio.day == inicio.day;
+}
+
 /// "en_revision" -> "En revisión", "aprobada" -> "Aprobada".
 String _etiquetaEstado(String estado) {
   final e = estado.trim().toLowerCase();
@@ -827,10 +892,6 @@ class _EstadoBadge extends StatelessWidget {
       case PlanillaMensual.estadoAprobada:
         fondo = AppColors.successBg;
         texto = AppColors.success;
-        break;
-      case PlanillaMensual.estadoRechazada:
-        fondo = const Color(0xFFFEE2E2);
-        texto = Colors.red.shade700;
         break;
       default:
         fondo = AppColors.surfaceMuted;

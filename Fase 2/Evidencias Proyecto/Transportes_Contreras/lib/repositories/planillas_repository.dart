@@ -14,11 +14,11 @@ class PlanillasRepository {
 
   static const _estadoViajeCompletado = 'completado';
 
-  // AJUSTAR si en tu base se llaman distinto: la tabla de conductores y la
-  // columna de nombre de la tabla "clientes".
   static const _tablaConductores = 'conductores';
   static const _colNombreCompleto = 'nombre_completo';
-  static const _colNombreCliente = 'nombre_empresa';
+
+  // AJUSTAR si la tabla `regiones` usa otro nombre de columna para el nombre.
+  static const _colNombreRegion = 'nombre';
 
   static String _fecha(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -88,31 +88,50 @@ class PlanillasRepository {
   }
 
   /// Todos los viajes completados del conductor dentro del ciclo de [p].
-  Future<List<ViajePlanilla>> obtenerViajes(PlanillaMensual p) async {
+  Future<List<ViajePlanilla>> obtenerViajes(PlanillaMensual p) =>
+      obtenerViajesRango(conductorRut: p.conductorRut, desde: p.inicioCiclo, hasta: p.finCiclo);
+
+  /// Viajes completados de un conductor entre [desde] y [hasta] (inclusive).
+  /// Sirve para la cartola anual: una sola consulta en vez de una por ciclo.
+  Future<List<ViajePlanilla>> obtenerViajesRango({
+    required String conductorRut,
+    required DateTime desde,
+    required DateTime hasta,
+  }) async {
     try {
       final filas = await _db
           .from('viajes')
-          .select('fecha_viaje, numero_guia, pallets, horas_nocturnas, horas_sabado, guia_petroleo, '
-              'camiones(patente), clientes($_colNombreCliente), consignatarios(nombre_empresa)')
-          .eq('conductor_rut', p.conductorRut)
+          .select('fecha_viaje, numero_guia, pallets, horas_nocturnas, horas_sabado, '
+              'monto_tag, monto_peonetas, guia_petroleo, observaciones_conductor, '
+              'camiones(patente), regiones($_colNombreRegion), '
+              'clientes(nombre_empresa), consignatarios(nombre_empresa)')
+          .eq('conductor_rut', conductorRut)
           .eq('estado', _estadoViajeCompletado)
-          .gte('fecha_viaje', _fecha(p.inicioCiclo))
-          .lte('fecha_viaje', _fecha(p.finCiclo))
+          .gte('fecha_viaje', _fecha(desde))
+          .lte('fecha_viaje', _fecha(hasta))
           .order('fecha_viaje', ascending: true);
 
       return filas.map<ViajePlanilla>((f) {
         String texto(dynamic tabla, String col) => (tabla is Map ? tabla[col] as String? : null) ?? '—';
-        final guiaPetroleo = (f['guia_petroleo'] as String?)?.trim();
+        String? opcional(String col) {
+          final v = (f[col] as String?)?.trim();
+          return (v == null || v.isEmpty) ? null : v;
+        }
+
         return ViajePlanilla(
           fecha: DateTime.parse(f['fecha_viaje'] as String),
           numeroGuia: (f['numero_guia'] as String?) ?? '—',
           patente: texto(f['camiones'], 'patente'),
-          origen: texto(f['clientes'], _colNombreCliente),
-          destino: texto(f['consignatarios'], 'nombre_empresa'),
+          region: texto(f['regiones'], _colNombreRegion),
+          cliente: texto(f['clientes'], 'nombre_empresa'),
+          consignatario: texto(f['consignatarios'], 'nombre_empresa'),
           pallets: (f['pallets'] as num?)?.toInt() ?? 0,
           horasNocturnas: (f['horas_nocturnas'] as num?)?.toDouble() ?? 0,
           horasSabado: (f['horas_sabado'] as num?)?.toDouble() ?? 0,
-          guiaPetroleo: (guiaPetroleo == null || guiaPetroleo.isEmpty) ? null : guiaPetroleo,
+          montoTag: (f['monto_tag'] as num?)?.toInt(),
+          montoPeonetas: (f['monto_peonetas'] as num?)?.toInt(),
+          guiaPetroleo: opcional('guia_petroleo'),
+          observacion: opcional('observaciones_conductor'),
         );
       }).toList();
     } on PostgrestException catch (e) {
@@ -120,14 +139,31 @@ class PlanillasRepository {
     }
   }
 
-  /// Marca la planilla como aprobada o rechazada. [nuevoEstado] debe ser
-  /// [PlanillaMensual.estadoAprobada] o [PlanillaMensual.estadoRechazada].
-  Future<void> cambiarEstado(String planillaId, String nuevoEstado) async {
+  /// Cantidad de viajes completados (de todos los conductores) entre [desde] y
+  /// [hasta], inclusive. Se consulta directo en `viajes` para que el total del
+  /// ciclo en curso no dependa de que ya exista la planilla de cada conductor.
+  Future<int> contarViajesCompletados({required DateTime desde, required DateTime hasta}) async {
     try {
-      await _db.from('planillas_mensuales').update({'estado': nuevoEstado}).eq('id', planillaId);
+      final filas = await _db
+          .from('viajes')
+          .select('fecha_viaje')
+          .eq('estado', _estadoViajeCompletado)
+          .gte('fecha_viaje', _fecha(desde))
+          .lte('fecha_viaje', _fecha(hasta));
+      return filas.length;
     } on PostgrestException catch (e) {
-      final accion = nuevoEstado == PlanillaMensual.estadoRechazada ? 'rechazar' : 'aprobar';
-      throw RepositoryException('No se pudo $accion la planilla (${e.message}).');
+      throw RepositoryException('No se pudo calcular el total de viajes del ciclo (${e.message}).');
+    }
+  }
+
+  /// en_revision → aprobado.
+  Future<void> aprobar(String planillaId) async {
+    try {
+      await _db
+          .from('planillas_mensuales')
+          .update({'estado': PlanillaMensual.estadoAprobada}).eq('id', planillaId);
+    } on PostgrestException catch (e) {
+      throw RepositoryException('No se pudo aprobar la planilla (${e.message}).');
     }
   }
 }

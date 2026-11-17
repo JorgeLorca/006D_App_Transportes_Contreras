@@ -16,7 +16,6 @@ class PlanillaMensual {
   // Valores que acepta planillas_mensuales_estado_check en la base.
   static const estadoEnRevision = 'en_revision';
   static const estadoAprobada = 'aprobado';
-  static const estadoRechazada = 'rechazado';
 
   final String id;
   final String conductorRut;
@@ -33,7 +32,6 @@ class PlanillaMensual {
   final String? urlPdf;
 
   bool get aprobada => estado.trim().toLowerCase() == estadoAprobada;
-  bool get rechazada => estado.trim().toLowerCase() == estadoRechazada;
 
   PlanillaMensual copyWith({String? estado}) => PlanillaMensual(
         id: id,
@@ -54,28 +52,45 @@ class ViajePlanilla {
     required this.fecha,
     required this.numeroGuia,
     required this.patente,
-    required this.origen,
-    required this.destino,
+    required this.region,
+    required this.cliente,
+    required this.consignatario,
     required this.pallets,
     required this.horasNocturnas,
     required this.horasSabado,
+    this.montoTag,
+    this.montoPeonetas,
     this.guiaPetroleo,
+    this.observacion,
   });
 
   final DateTime fecha;
   final String numeroGuia;
   final String patente;
 
-  /// Nombre del cliente.
-  final String origen;
+  /// Nombre de la región (tabla `regiones`).
+  final String region;
 
-  /// Nombre del consignatario.
-  final String destino;
+  /// `clientes.nombre_empresa`.
+  final String cliente;
+
+  /// `consignatarios.nombre_empresa`.
+  final String consignatario;
   final int pallets;
+
+  /// Horas de carga o descarga nocturna (`viajes.horas_nocturnas`).
   final double horasNocturnas;
+
+  /// Horas trabajadas en sábado (`viajes.horas_sabado`).
   final double horasSabado;
+
+  /// `viajes.monto_tag`, en pesos.
+  final int? montoTag;
+
+  /// `viajes.monto_peonetas`, en pesos.
+  final int? montoPeonetas;
   final String? guiaPetroleo;
 
-  /// Horas extra = nocturnas + sábado.
-  double get horasExtra => horasNocturnas + horasSabado;
+  /// `viajes.observaciones_conductor`.
+  final String? observacion;
 }
