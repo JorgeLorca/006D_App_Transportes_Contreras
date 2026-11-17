@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme/app_colors.dart';
@@ -192,6 +193,110 @@ class _GestionViajesAsignadosScreenState extends State<GestionViajesAsignadosScr
     });
   }
 
+  String _labelEstadoFiltro(String estado) {
+    switch (estado) {
+      case 'pendiente':
+        return 'Estado: Pendiente';
+      case 'en_curso':
+        return 'Estado: En Ruta';
+      case 'rechazado':
+        return 'Estado: Rechazados';
+      case 'completado':
+        return 'Estado: Completado';
+      default:
+        return 'Estado: Todos';
+    }
+  }
+
+  void _abrirModalFiltroEstado() {
+    const opciones = [
+      {'valor': 'todos', 'titulo': 'Todos los estados', 'icono': Icons.list_alt_rounded, 'color': AppColors.primary},
+      {'valor': 'pendiente', 'titulo': 'Pendiente', 'icono': Icons.schedule_rounded, 'color': AppColors.warning},
+      {'valor': 'en_curso', 'titulo': 'En Ruta', 'icono': Icons.local_shipping_outlined, 'color': Colors.green},
+      {'valor': 'rechazado', 'titulo': 'Rechazados', 'icono': Icons.flag_rounded, 'color': Colors.red},
+      {'valor': 'completado', 'titulo': 'Completado', 'icono': Icons.check_circle_outline, 'color': Colors.blueGrey},
+    ];
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Row(
+          children: [
+            Icon(Icons.filter_list_rounded, color: AppColors.primary, size: 22),
+            SizedBox(width: 8),
+            Text(
+              'Filtrar por Estado del Viaje',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: opciones.map((op) {
+              final String val = op['valor'] as String;
+              final bool seleccionado = _estadoFiltro == val;
+              final Color color = op['color'] as Color;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () {
+                    setState(() {
+                      _estadoFiltro = val;
+                      _paginaActual = 1;
+                      _aplicarFiltros();
+                    });
+                    Navigator.pop(ctx);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: seleccionado ? AppColors.primary.withOpacity(0.08) : const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: seleccionado ? AppColors.primary : AppColors.border,
+                        width: seleccionado ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(op['icono'] as IconData, size: 18, color: color),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            op['titulo'] as String,
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: seleccionado ? FontWeight.bold : FontWeight.w500,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                        if (seleccionado)
+                          const Icon(Icons.check_circle, size: 18, color: AppColors.primary),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cerrar', style: TextStyle(color: AppColors.textSecondary)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _eliminarViaje(ViajeAdminItem viaje) async {
     final estado = viaje['estado'].toString().toLowerCase();
     final esCompletado = estado == 'completado';
@@ -199,6 +304,8 @@ class _GestionViajesAsignadosScreenState extends State<GestionViajesAsignadosScr
     final bool? confirmar = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: const Row(
           children: [
@@ -268,6 +375,8 @@ class _GestionViajesAsignadosScreenState extends State<GestionViajesAsignadosScr
         return StatefulBuilder(
           builder: (context, setModalState) {
             return AlertDialog(
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.transparent,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Text(
                 'Reasignar Conductor, Camión o Destino',
@@ -293,57 +402,79 @@ class _GestionViajesAsignadosScreenState extends State<GestionViajesAsignadosScr
                     final List listCam = data[1] as List;
                     final List listCons = data[2] as List;
 
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Cliente Origen: ${viaje['cliente_nombre']}',
-                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                        ),
-                        const SizedBox(height: 16),
-
-                        DropdownButtonFormField<String>(
-                          value: listCond.any((c) => c['rut'].toString() == nuevoConductorRut) ? nuevoConductorRut : null,
-                          decoration: const InputDecoration(labelText: 'Conductor Asignado', border: OutlineInputBorder()),
-                          items: listCond.map((c) {
-                            return DropdownMenuItem<String>(
-                              value: c['rut'].toString(),
-                              child: Text(c['nombre_completo'].toString()),
-                            );
-                          }).toList(),
-                          onChanged: (v) => setModalState(() => nuevoConductorRut = v),
-                        ),
-                        const SizedBox(height: 14),
-
-                        DropdownButtonFormField<String>(
-                          value: listCam.any((c) => c['id'].toString() == nuevoCamionId) ? nuevoCamionId : null,
-                          decoration: const InputDecoration(labelText: 'Camión (Patente)', border: OutlineInputBorder()),
-                          items: listCam.map((c) {
-                            return DropdownMenuItem<String>(
-                              value: c['id'].toString(),
-                              child: Text(c['patente'].toString().toUpperCase()),
-                            );
-                          }).toList(),
-                          onChanged: (v) => setModalState(() => nuevoCamionId = v),
-                        ),
-                        const SizedBox(height: 14),
-
-                        DropdownButtonFormField<String>(
-                          value: listCons.any((c) => c['id'].toString() == nuevoConsignatarioId) ? nuevoConsignatarioId : null,
-                          decoration: const InputDecoration(
-                            labelText: 'Consignatario (Destino)',
-                            border: OutlineInputBorder(),
+                    return SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Cliente Origen: ${viaje['cliente_nombre']}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
                           ),
-                          items: listCons.map((c) {
-                            return DropdownMenuItem<String>(
-                              value: c['id'].toString(),
-                              child: Text(c['nombre_empresa'].toString()),
-                            );
-                          }).toList(),
-                          onChanged: (v) => setModalState(() => nuevoConsignatarioId = v),
-                        ),
-                      ],
+                          const SizedBox(height: 16),
+
+                          DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            value: listCond.any((c) => c['rut'].toString() == nuevoConductorRut) ? nuevoConductorRut : null,
+                            dropdownColor: Colors.white,
+                            decoration: const InputDecoration(labelText: 'Conductor Asignado', border: OutlineInputBorder()),
+                            items: listCond.map((c) {
+                              return DropdownMenuItem<String>(
+                                value: c['rut'].toString(),
+                                child: Text(
+                                  c['nombre_completo'].toString(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (v) => setModalState(() => nuevoConductorRut = v),
+                          ),
+                          const SizedBox(height: 14),
+
+                          DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            value: listCam.any((c) => c['id'].toString() == nuevoCamionId) ? nuevoCamionId : null,
+                            dropdownColor: Colors.white,
+                            decoration: const InputDecoration(labelText: 'Camión (Patente)', border: OutlineInputBorder()),
+                            items: listCam.map((c) {
+                              return DropdownMenuItem<String>(
+                                value: c['id'].toString(),
+                                child: Text(
+                                  c['patente'].toString().toUpperCase(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (v) => setModalState(() => nuevoCamionId = v),
+                          ),
+                          const SizedBox(height: 14),
+
+                          DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            value: listCons.any((c) => c['id'].toString() == nuevoConsignatarioId) ? nuevoConsignatarioId : null,
+                            dropdownColor: Colors.white,
+                            decoration: const InputDecoration(
+                              labelText: 'Consignatario (Destino)',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: listCons.map((c) {
+                              return DropdownMenuItem<String>(
+                                value: c['id'].toString(),
+                                child: Text(
+                                  c['nombre_empresa'].toString(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (v) => setModalState(() => nuevoConsignatarioId = v),
+                          ),
+                        ],
+                      ),
                     );
                   },
                 ),
@@ -368,7 +499,6 @@ class _GestionViajesAsignadosScreenState extends State<GestionViajesAsignadosScr
                             if (nuevoConsignatarioId != null && nuevoConsignatarioId!.isNotEmpty) {
                               updatePayload['consignatario_id'] = nuevoConsignatarioId;
                             }
-                            // Si el viaje estaba rechazado y se reasigna, vuelve a pendiente
                             if (viaje['estado'].toString().toLowerCase() == 'rechazado') {
                               updatePayload['estado'] = 'pendiente';
                               updatePayload['observaciones_conductor'] = null;
@@ -514,29 +644,39 @@ class _GestionViajesAsignadosScreenState extends State<GestionViajesAsignadosScr
             else if (_viajesMostrados.isEmpty)
               _buildEmptyState()
             else
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Scrollbar(
-                  controller: _tablaScrollController,
-                  thumbVisibility: true,
-                  child: SingleChildScrollView(
-                    controller: _tablaScrollController,
-                    scrollDirection: Axis.horizontal,
-                    child: SizedBox(
-                      width: 1220,
-                      child: Column(
-                        children: [
-                          _buildEncabezadoTabla(),
-                          for (final v in _viajesPaginados) _buildFilaTabla(v),
-                        ],
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  // Ocupa el 100% del ancho disponible en pantallas grandes y habilita scroll horizontal en pantallas divididas/móviles
+                  final double anchoTabla = math.max(1150, constraints.maxWidth);
+                  return Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Scrollbar(
+                        controller: _tablaScrollController,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          controller: _tablaScrollController,
+                          scrollDirection: Axis.horizontal,
+                          child: SizedBox(
+                            width: anchoTabla,
+                            child: Column(
+                              children: [
+                                _buildEncabezadoTabla(),
+                                for (final v in _viajesPaginados) _buildFilaTabla(v),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
 
             const SizedBox(height: 16),
@@ -576,80 +716,154 @@ class _GestionViajesAsignadosScreenState extends State<GestionViajesAsignadosScr
   }
 
   Widget _buildBarraFiltros(bool esPantallaPequena) {
+    final Widget campoBusqueda = TextField(
+      controller: _searchController,
+      onChanged: (_) => _aplicarFiltros(),
+      decoration: InputDecoration(
+        hintText: 'Buscar por chofer, patente, cliente o guía...',
+        hintStyle: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary),
+        prefixIcon: const Icon(Icons.search, size: 19, color: AppColors.textSecondary),
+        suffixIcon: _searchController.text.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.close, size: 18, color: AppColors.textSecondary),
+                tooltip: 'Limpiar búsqueda',
+                onPressed: () {
+                  _searchController.clear();
+                  _aplicarFiltros();
+                },
+              )
+            : null,
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+        ),
+      ),
+    );
+
+    final Widget botonCalendario = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        OutlinedButton.icon(
+          onPressed: () async {
+            final d = await showDatePicker(
+              context: context,
+              initialDate: _fechaFiltro ?? DateTime.now(),
+              firstDate: DateTime(2024),
+              lastDate: DateTime(2030),
+            );
+            if (d != null) {
+              setState(() {
+                _fechaFiltro = d;
+                _aplicarFiltros();
+              });
+            }
+          },
+          style: OutlinedButton.styleFrom(
+            backgroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            side: const BorderSide(color: AppColors.border),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+          icon: const Icon(Icons.calendar_today, size: 16, color: AppColors.textPrimary),
+          label: Text(
+            _fechaFiltro != null ? _formatearFechaCorta(_fechaFiltro!.toIso8601String()) : 'Todas las fechas',
+            style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w500),
+          ),
+        ),
+        if (_fechaFiltro != null)
+          IconButton(
+            tooltip: 'Quitar filtro de fecha',
+            icon: const Icon(Icons.clear, color: Colors.red, size: 18),
+            onPressed: () => setState(() {
+              _fechaFiltro = null;
+              _aplicarFiltros();
+            }),
+          ),
+      ],
+    );
+
+    final Widget botonModalEstado = OutlinedButton.icon(
+      onPressed: _abrirModalFiltroEstado,
+      style: OutlinedButton.styleFrom(
+        backgroundColor: _estadoFiltro != 'todos' ? AppColors.primary.withOpacity(0.08) : Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        side: BorderSide(
+          color: _estadoFiltro != 'todos' ? AppColors.primary : AppColors.border,
+          width: _estadoFiltro != 'todos' ? 1.5 : 1,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      icon: Icon(
+        Icons.filter_list_rounded,
+        size: 16,
+        color: _estadoFiltro != 'todos' ? AppColors.primary : AppColors.textPrimary,
+      ),
+      label: Text(
+        _labelEstadoFiltro(_estadoFiltro),
+        style: TextStyle(
+          fontSize: 13,
+          color: _estadoFiltro != 'todos' ? AppColors.primary : AppColors.textPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+
+    // En pantalla móvil mantiene el diseño fluido original
+    if (esPantallaPequena) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            campoBusqueda,
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                botonCalendario,
+                botonModalEstado,
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    // En escritorio/web el buscador se estira al 100% del ancho disponible
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.border),
       ),
-      child: Wrap(
-        spacing: 12,
-        runSpacing: 12,
-        crossAxisAlignment: WrapCrossAlignment.center,
+      child: Row(
         children: [
-          SizedBox(
-            width: esPantallaPequena ? double.infinity : 320,
-            height: 40,
-            child: TextField(
-              controller: _searchController,
-              onChanged: (_) => _aplicarFiltros(),
-              decoration: const InputDecoration(
-                hintText: 'Buscar por chofer, patente, cliente o guía...',
-                prefixIcon: Icon(Icons.search, size: 18),
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(horizontal: 12),
-              ),
-            ),
-          ),
-          OutlinedButton.icon(
-            onPressed: () async {
-              final d = await showDatePicker(
-                context: context,
-                initialDate: _fechaFiltro ?? DateTime.now(),
-                firstDate: DateTime(2024),
-                lastDate: DateTime(2030),
-              );
-              if (d != null) {
-                setState(() {
-                  _fechaFiltro = d;
-                  _aplicarFiltros();
-                });
-              }
-            },
-            icon: const Icon(Icons.calendar_today, size: 16),
-            label: Text(
-              _fechaFiltro != null ? _formatearFechaCorta(_fechaFiltro!.toIso8601String()) : 'Todas las fechas',
-            ),
-          ),
-          if (_fechaFiltro != null)
-            IconButton(
-              tooltip: 'Quitar filtro de fecha',
-              icon: const Icon(Icons.clear, color: Colors.red, size: 18),
-              onPressed: () => setState(() {
-                _fechaFiltro = null;
-                _aplicarFiltros();
-              }),
-            ),
-          DropdownButton<String>(
-            value: _estadoFiltro,
-            underline: const SizedBox(),
-            items: const [
-              DropdownMenuItem(value: 'todos', child: Text('Estado: Todos')),
-              DropdownMenuItem(value: 'pendiente', child: Text('Estado: Pendiente')),
-              DropdownMenuItem(value: 'en_curso', child: Text('Estado: En Ruta')),
-              DropdownMenuItem(value: 'rechazado', child: Text('Estado: Rechazados 🚩')),
-              DropdownMenuItem(value: 'completado', child: Text('Estado: Completado')),
-            ],
-            onChanged: (val) {
-              if (val != null) {
-                setState(() {
-                  _estadoFiltro = val;
-                  _aplicarFiltros();
-                });
-              }
-            },
-          ),
+          Expanded(child: campoBusqueda),
+          const SizedBox(width: 12),
+          botonCalendario,
+          const SizedBox(width: 10),
+          botonModalEstado,
         ],
       ),
     );
@@ -683,15 +897,15 @@ class _GestionViajesAsignadosScreenState extends State<GestionViajesAsignadosScr
       ),
       child: const Row(
         children: [
-          SizedBox(width: 100, child: Text('ID / GUÍA', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.textSecondary))),
+          SizedBox(width: 110, child: Text('ID / GUÍA', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.textSecondary))),
           SizedBox(width: 14),
-          SizedBox(width: 130, child: Text('FECHA Y HORA', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.textSecondary))),
+          SizedBox(width: 135, child: Text('FECHA Y HORA', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.textSecondary))),
           SizedBox(width: 14),
-          SizedBox(width: 200, child: Text('CONDUCTOR / CAMIÓN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.textSecondary))),
+          SizedBox(width: 220, child: Text('CONDUCTOR / CAMIÓN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.textSecondary))),
           SizedBox(width: 14),
           Expanded(child: Text('RUTA (CLIENTE ➔ CONSIGNATARIO)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.textSecondary))),
           SizedBox(width: 14),
-          SizedBox(width: 140, child: Text('ESTADO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.textSecondary))),
+          SizedBox(width: 145, child: Text('ESTADO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.textSecondary))),
           SizedBox(width: 14),
           SizedBox(width: 210, child: Text('ACCIONES', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.textSecondary))),
         ],
@@ -725,7 +939,7 @@ class _GestionViajesAsignadosScreenState extends State<GestionViajesAsignadosScr
       child: Row(
         children: [
           SizedBox(
-            width: 100,
+            width: 110,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -740,7 +954,7 @@ class _GestionViajesAsignadosScreenState extends State<GestionViajesAsignadosScr
           ),
           const SizedBox(width: 14),
           SizedBox(
-            width: 130,
+            width: 135,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -751,7 +965,7 @@ class _GestionViajesAsignadosScreenState extends State<GestionViajesAsignadosScr
           ),
           const SizedBox(width: 14),
           SizedBox(
-            width: 200,
+            width: 220,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -790,7 +1004,7 @@ class _GestionViajesAsignadosScreenState extends State<GestionViajesAsignadosScr
           ),
           const SizedBox(width: 14),
           SizedBox(
-            width: 140,
+            width: 145,
             child: Align(
               alignment: Alignment.centerLeft,
               child: Container(
