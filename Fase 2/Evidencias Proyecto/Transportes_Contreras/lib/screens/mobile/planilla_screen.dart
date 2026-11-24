@@ -331,28 +331,31 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} hrs';
   }
 
+  String _formatearHoraDecimal(dynamic valor) {
+    final numVal = (valor is num) ? valor.toDouble() : double.tryParse(valor?.toString() ?? '0') ?? 0.0;
+    if (numVal <= 0) return 'No aplica';
+    final int hora = numVal.floor();
+    final int min = ((numVal - hora) * 100).round();
+    return '${hora.toString().padLeft(2, '0')}:${min.toString().padLeft(2, '0')} hrs';
+  }
+
   @override
   Widget build(BuildContext context) {
     final listaCiclo = _viajesFiltrados;
 
     final int totalViajes = listaCiclo.length;
     int totalPallets = 0;
-    double totalHorasNocturnas = 0.0;
-    double totalHorasSabado = 0.0;
+    int totalTags = 0;
 
     for (final v in listaCiclo) {
       totalPallets += (v['pallets'] is int)
           ? (v['pallets'] as int)
           : int.tryParse(v['pallets']?.toString() ?? '0') ?? 0;
-      totalHorasNocturnas += (v['horas_nocturnas'] is num)
-          ? (v['horas_nocturnas'] as num).toDouble()
-          : double.tryParse(v['horas_nocturnas']?.toString() ?? '0') ?? 0.0;
-      totalHorasSabado += (v['horas_sabado'] is num)
-          ? (v['horas_sabado'] as num).toDouble()
-          : double.tryParse(v['horas_sabado']?.toString() ?? '0') ?? 0.0;
+      totalTags += (v['monto_tag'] is int)
+          ? (v['monto_tag'] as int)
+          : int.tryParse(v['monto_tag']?.toString() ?? '0') ?? 0;
     }
 
-    final double totalHorasExtra = totalHorasNocturnas + totalHorasSabado;
     final inicioCiclo = _inicioCicloSeleccionado;
     final finCiclo = _finCicloSeleccionado;
 
@@ -497,7 +500,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                           child: Divider(color: Colors.white12, height: 1),
                         ),
 
-                        // CONTADORES OPERATIVOS (SIN MONTOS DE DINERO POR SECRETO COMERCIAL)
+                        // CONTADORES OPERATIVOS
                         Row(
                           children: [
                             _buildMetricaCiclo(
@@ -514,9 +517,9 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                             ),
                             const SizedBox(width: 8),
                             _buildMetricaCiclo(
-                              valor: '${totalHorasExtra.toStringAsFixed(1)}h',
-                              etiqueta: 'HRS NOCT/SÁB',
-                              icono: Icons.schedule,
+                              valor: totalTags.toString(),
+                              etiqueta: 'TAGS TOTALES',
+                              icono: Icons.toll,
                             ),
                           ],
                         ),
@@ -526,7 +529,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
 
                   const SizedBox(height: 16),
 
-                  // 2. BUSCADOR Y SELECTOR DE FECHAS (MODO CARTOLA)
+                  // 2. BUSCADOR Y SELECTOR DE FECHAS
                   Row(
                     children: [
                       Expanded(
@@ -611,7 +614,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
 
                   const SizedBox(height: 18),
 
-                  // 3. LISTADO TIPO CARTOLA CON TODOS LOS DATOS DE LA TABLA VIAJES
+                  // 3. LISTADO TIPO CARTOLA
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -712,8 +715,12 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     final hSab = (viaje['horas_sabado'] is num)
         ? (viaje['horas_sabado'] as num).toDouble()
         : double.tryParse(viaje['horas_sabado']?.toString() ?? '0') ?? 0.0;
-    final tieneTag = ((viaje['monto_tag'] is num) ? (viaje['monto_tag'] as num) : int.tryParse(viaje['monto_tag']?.toString() ?? '0') ?? 0) > 0;
-    final tienePeoneta = ((viaje['monto_peonetas'] is num) ? (viaje['monto_peonetas'] as num) : int.tryParse(viaje['monto_peonetas']?.toString() ?? '0') ?? 0) > 0;
+    final int cantTag = (viaje['monto_tag'] is num)
+        ? (viaje['monto_tag'] as num).toInt()
+        : int.tryParse(viaje['monto_tag']?.toString() ?? '0') ?? 0;
+    final int cantPeonetas = (viaje['monto_peonetas'] is num)
+        ? (viaje['monto_peonetas'] as num).toInt()
+        : int.tryParse(viaje['monto_peonetas']?.toString() ?? '0') ?? 0;
     final bool isSynced = (viaje['is_synced'] ?? 1) == 1;
 
     return InkWell(
@@ -795,15 +802,15 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                       if (region.isNotEmpty)
                         Text('📍 $region', style: const TextStyle(fontSize: 11, color: Colors.grey)),
                       if (hNoct > 0)
-                        Text('🌙 ${hNoct}h noct.', style: TextStyle(fontSize: 11, color: _orangeColor, fontWeight: FontWeight.w600)),
+                        Text('🌙 Salida: ${_formatearHoraDecimal(hNoct)}', style: TextStyle(fontSize: 11, color: _orangeColor, fontWeight: FontWeight.w600)),
                       if (hSab > 0)
-                        Text('📅 ${hSab}h sáb.', style: TextStyle(fontSize: 11, color: _orangeColor, fontWeight: FontWeight.w600)),
+                        Text('📅 Sáb: ${_formatearHoraDecimal(hSab)}', style: TextStyle(fontSize: 11, color: _orangeColor, fontWeight: FontWeight.w600)),
                       if (guiaPetroleo.isNotEmpty)
                         Text('⛽ Guía Pet: $guiaPetroleo', style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
-                      if (tieneTag)
-                        const Text('🛣️ TAG Reg.', style: TextStyle(fontSize: 11, color: Colors.teal)),
-                      if (tienePeoneta)
-                        const Text('👷 Peoneta Reg.', style: TextStyle(fontSize: 11, color: Colors.indigo)),
+                      if (cantTag > 0)
+                        Text('🛣️ $cantTag TAGs', style: const TextStyle(fontSize: 11, color: Colors.teal, fontWeight: FontWeight.w600)),
+                      if (cantPeonetas > 0)
+                        Text('👷 $cantPeonetas Peon.', style: const TextStyle(fontSize: 11, color: Colors.indigo, fontWeight: FontWeight.w600)),
                     ],
                   ),
                 ],
@@ -816,7 +823,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     );
   }
 
-  /// Modal con TODOS los datos relevantes de la tabla `viajes` para respaldo de planilla y rendición
+  /// Modal con TODOS los datos relevantes de la tabla `viajes`
   void _mostrarDetalleCartola(RegistroMapa viaje, int numeroVuelta) {
     final fechaDt = _obtenerFechaViaje(viaje);
     final cliente = _safeString(viaje['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Cliente Origen');
@@ -830,15 +837,10 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     final guia = (viaje['numero_guia'] ?? 'Sin Guía').toString();
     final pallets = (viaje['pallets'] ?? 0).toString();
     final guiaPetroleo = (viaje['guia_petroleo'] ?? '').toString();
-    final hNoct = (viaje['horas_nocturnas'] ?? 0).toString();
-    final hSab = (viaje['horas_sabado'] ?? 0).toString();
     final horaCargaProg = (viaje['hora_carga'] ?? '--:--').toString();
     final horaDescargaProg = (viaje['hora_descarga'] ?? '--:--').toString();
     final horaInicioReal = _formatearHoraIso(viaje['iniciado_en']?.toString());
     final horaFinReal = _formatearHoraIso(viaje['finalizado_en']?.toString());
-
-    final tieneTag = ((viaje['monto_tag'] is num) ? (viaje['monto_tag'] as num) : int.tryParse(viaje['monto_tag']?.toString() ?? '0') ?? 0) > 0;
-    final tienePeoneta = ((viaje['monto_peonetas'] is num) ? (viaje['monto_peonetas'] as num) : int.tryParse(viaje['monto_peonetas']?.toString() ?? '0') ?? 0) > 0;
 
     final obsConductor = (viaje['observaciones_conductor'] ?? '').toString();
     final obsAdmin = (viaje['observaciones_admin'] ?? '').toString();
@@ -884,11 +886,14 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                   _filaFicha('Pallets Movilizados', '$pallets Pallets'),
                   _filaFicha('Horario Programado', 'Carga: $horaCargaProg  |  Descarga: $horaDescargaProg'),
                   _filaFicha('Inicio / Fin Real', 'Inicio: $horaInicioReal  |  Cierre: $horaFinReal'),
-                  _filaFicha('Horas Nocturnas / Sábado', '$hNoct hrs nocturnas  |  $hSab hrs sábado'),
+                  _filaFicha(
+                    'Salida Nocturna / Sábado',
+                    'Nocturna: ${_formatearHoraDecimal(viaje['horas_nocturnas'])}  |  Sábado: ${_formatearHoraDecimal(viaje['horas_sabado'])}',
+                  ),
                   _filaFicha('Guía de Petróleo', guiaPetroleo.isEmpty ? 'No registrada' : guiaPetroleo),
                   _filaFicha(
-                    'TAG / Peonetas',
-                    'TAG: ${tieneTag ? "Rendido en sistema" : "Sin cargo"}  |  Peonetas: ${tienePeoneta ? "Rendido en sistema" : "Sin cargo"}',
+                    'TAGs / Peonetas',
+                    'TAGs: ${viaje['monto_tag'] ?? 0} unid.  |  Peonetas: ${viaje['monto_peonetas'] ?? 0} unid.',
                   ),
                   if (obsConductor.isNotEmpty)
                     _filaFicha('Obs. Conductor', obsConductor),

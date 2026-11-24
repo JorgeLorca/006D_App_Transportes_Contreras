@@ -144,7 +144,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
   Future<void> _iniciarRuta() async {
     if (_viajeSeleccionado == null || _rutConductor == null) return;
 
-    // 1. VALIDACIÓN DE ASISTENCIA OBLIGATORIA: Verificar que haya marcado ENTRADA en Asistencia
+    // 1. VALIDACIÓN DE ASISTENCIA OBLIGATORIA
     final enTurno = await DatabaseHelper.instance.tieneTurnoAsistenciaActivo(_rutConductor!);
     if (!enTurno) {
       if (mounted) {
@@ -163,7 +163,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
 
     final viajeId = _viajeSeleccionado!['id'].toString();
 
-    // 2. VALIDACIÓN DE RUTA DOBLE: Verificar que no tenga ya otro viaje en curso
+    // 2. VALIDACIÓN DE RUTA DOBLE
     final yaEnRuta = await DatabaseHelper.instance.tieneViajeEnCurso(
       _rutConductor!,
       excluirViajeId: viajeId,
@@ -188,7 +188,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
     try {
       final pos = await _obtenerCoordenadaOpcional();
 
-      final datosInicio = <String, dynamic>{
+      final RegistroMapa datosInicio = {
         'estado': 'en_curso',
         'iniciado_en': DateTime.now().toUtc().toIso8601String(),
       };
@@ -309,7 +309,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
       final viajeId = _viajeSeleccionado!['id'].toString();
       final pos = await _obtenerCoordenadaOpcional();
 
-      final datosRechazo = <String, dynamic>{
+      final RegistroMapa datosRechazo = {
         'estado': 'rechazado',
         'observaciones_conductor': '[VIAJE RECHAZADO] $motivo',
         'finalizado_en': DateTime.now().toUtc().toIso8601String(),
@@ -347,6 +347,129 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
     }
   }
 
+  double _timeOfDayADouble(TimeOfDay? t) {
+    if (t == null) return 0.0;
+    return t.hour + (t.minute / 100.0);
+  }
+
+  Widget _buildContadorUnidades({
+    required String titulo,
+    required IconData icono,
+    required int valor,
+    required VoidCallback onRestar,
+    required VoidCallback onSumar,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icono, size: 15, color: _primaryColor),
+            const SizedBox(width: 5),
+            Text(
+              titulo,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _primaryColor),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Container(
+          height: 52,
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey.shade400),
+            borderRadius: BorderRadius.circular(6),
+            color: Colors.white,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                onPressed: valor > 0 ? onRestar : null,
+                icon: const Icon(Icons.remove_circle_outline),
+                color: _redColor,
+              ),
+              Text(
+                '$valor',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: valor == 0 ? Colors.grey : _primaryColor,
+                ),
+              ),
+              IconButton(
+                onPressed: onSumar,
+                icon: const Icon(Icons.add_circle_outline),
+                color: Colors.green,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSelectorHora({
+    required BuildContext context,
+    required String titulo,
+    required IconData icono,
+    required TimeOfDay? horaSeleccionada,
+    required VoidCallback onTap,
+    required VoidCallback onLimpiar,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icono, size: 15, color: _primaryColor),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Text(
+                titulo,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _primaryColor),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            height: 52,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              border: Border.all(color: horaSeleccionada != null ? _orangeColor : Colors.grey.shade400),
+              borderRadius: BorderRadius.circular(6),
+              color: Colors.white,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  horaSeleccionada != null ? horaSeleccionada.format(context) : 'Sin hora',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: horaSeleccionada != null ? FontWeight.bold : FontWeight.normal,
+                    color: horaSeleccionada != null ? _primaryColor : Colors.grey,
+                  ),
+                ),
+                if (horaSeleccionada != null)
+                  GestureDetector(
+                    onTap: onLimpiar,
+                    child: const Icon(Icons.close, size: 18, color: Colors.grey),
+                  )
+                else
+                  const Icon(Icons.access_time, size: 18, color: Colors.grey),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   void _mostrarFormularioFinalizacion() {
     final palletsRaw = _viajeSeleccionado?['pallets'];
     final palletsIniciales = (palletsRaw == null || palletsRaw.toString() == '0') ? '' : palletsRaw.toString();
@@ -358,12 +481,13 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
 
     final numGuiaCtrl = TextEditingController();
     final palletsCtrl = TextEditingController(text: palletsIniciales);
-    final horasNocturnasCtrl = TextEditingController();
-    final horasSabadoCtrl = TextEditingController();
-    final montoTagCtrl = TextEditingController();
-    final montoPeonetasCtrl = TextEditingController();
     final guiaPetroleoCtrl = TextEditingController();
     final obsCtrl = TextEditingController();
+
+    int cantidadPeonetas = 0;
+    int cantidadTags = 0;
+    TimeOfDay? horaNocturnaSalida;
+    TimeOfDay? horaSabadoSalida;
 
     showModalBottomSheet(
       context: context,
@@ -396,7 +520,6 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
                     ),
                     const SizedBox(height: 18),
 
-                    // Si el Admin dejó el Consignatario pendiente, el conductor debe elegirlo aquí
                     if (pedirConsignatario || _catalogoConsignatarios.isNotEmpty) ...[
                       DropdownButtonFormField<String>(
                         value: _catalogoConsignatarios.any((c) => c['id']?.toString() == consignatarioElegidoId)
@@ -456,65 +579,84 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
+
+                    // Selectores de hora de salida (AM / PM) para Nocturna y Sábado
                     Row(
                       children: [
                         Expanded(
-                          child: TextField(
-                            controller: horasNocturnasCtrl,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            decoration: const InputDecoration(
-                              labelText: 'Hrs Nocturnas',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.mode_night),
-                            ),
+                          child: _buildSelectorHora(
+                            context: context,
+                            titulo: 'Hora Nocturna (Salida)',
+                            icono: Icons.mode_night,
+                            horaSeleccionada: horaNocturnaSalida,
+                            onTap: () async {
+                              final elegida = await showTimePicker(
+                                context: context,
+                                initialTime: horaNocturnaSalida ?? TimeOfDay.now(),
+                                helpText: 'HORA DE SALIDA NOCTURNA',
+                              );
+                              if (elegida != null) {
+                                setModalState(() => horaNocturnaSalida = elegida);
+                              }
+                            },
+                            onLimpiar: () => setModalState(() => horaNocturnaSalida = null),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: TextField(
-                            controller: horasSabadoCtrl,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            decoration: const InputDecoration(
-                              labelText: 'Hrs Sábado',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.calendar_today),
-                            ),
+                          child: _buildSelectorHora(
+                            context: context,
+                            titulo: 'Hora Sábado (Salida)',
+                            icono: Icons.calendar_today,
+                            horaSeleccionada: horaSabadoSalida,
+                            onTap: () async {
+                              final elegida = await showTimePicker(
+                                context: context,
+                                initialTime: horaSabadoSalida ?? TimeOfDay.now(),
+                                helpText: 'HORA DE SALIDA SÁBADO',
+                              );
+                              if (elegida != null) {
+                                setModalState(() => horaSabadoSalida = elegida);
+                              }
+                            },
+                            onLimpiar: () => setModalState(() => horaSabadoSalida = null),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
+
+                    // Contadores con + y - para TAGs y Peonetas (Unidades)
                     Row(
                       children: [
                         Expanded(
-                          child: TextField(
-                            controller: montoTagCtrl,
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                            decoration: const InputDecoration(
-                              labelText: 'Monto TAG',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.toll),
-                            ),
+                          child: _buildContadorUnidades(
+                            titulo: 'TAGs (Unidades)',
+                            icono: Icons.toll,
+                            valor: cantidadTags,
+                            onRestar: () => setModalState(() {
+                              if (cantidadTags > 0) cantidadTags--;
+                            }),
+                            onSumar: () => setModalState(() => cantidadTags++),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: TextField(
-                            controller: montoPeonetasCtrl,
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                            decoration: const InputDecoration(
-                              labelText: 'Peonetas',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.groups_outlined),
-                            ),
+                          child: _buildContadorUnidades(
+                            titulo: 'Peonetas',
+                            icono: Icons.groups_outlined,
+                            valor: cantidadPeonetas,
+                            onRestar: () => setModalState(() {
+                              if (cantidadPeonetas > 0) cantidadPeonetas--;
+                            }),
+                            onSumar: () => setModalState(() => cantidadPeonetas++),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
+
                     TextField(
                       controller: guiaPetroleoCtrl,
                       decoration: const InputDecoration(
@@ -576,10 +718,10 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
                             consignatarioId: consignatarioElegidoId!,
                             guia: numGuiaCtrl.text.trim(),
                             pallets: palletsCtrl.text.trim(),
-                            hNocturnas: horasNocturnasCtrl.text,
-                            hSabado: horasSabadoCtrl.text,
-                            tag: montoTagCtrl.text,
-                            peonetas: montoPeonetasCtrl.text,
+                            hNocturnas: _timeOfDayADouble(horaNocturnaSalida),
+                            hSabado: _timeOfDayADouble(horaSabadoSalida),
+                            tagUnidades: cantidadTags,
+                            peonetasUnidades: cantidadPeonetas,
                             petroleo: guiaPetroleoCtrl.text.trim(),
                             obs: obsCtrl.text.trim(),
                           );
@@ -625,10 +767,10 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
     required String consignatarioId,
     required String guia,
     required String pallets,
-    required String hNocturnas,
-    required String hSabado,
-    required String tag,
-    required String peonetas,
+    required double hNocturnas,
+    required double hSabado,
+    required int tagUnidades,
+    required int peonetasUnidades,
     required String petroleo,
     required String obs,
   }) async {
@@ -639,15 +781,15 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
       final viajeId = _viajeSeleccionado!['id'].toString();
       final pos = await _obtenerCoordenadaOpcional();
 
-      final datosCierre = <String, dynamic>{
+      final RegistroMapa datosCierre = {
         'estado': 'completado',
         'consignatario_id': consignatarioId,
         'numero_guia': guia,
         'pallets': int.tryParse(pallets) ?? (_viajeSeleccionado!['pallets'] ?? 0),
-        'horas_nocturnas': double.tryParse(hNocturnas.replaceAll(',', '.')) ?? 0.0,
-        'horas_sabado': double.tryParse(hSabado.replaceAll(',', '.')) ?? 0.0,
-        'monto_tag': int.tryParse(tag) ?? 0,
-        'monto_peonetas': int.tryParse(peonetas) ?? 0,
+        'horas_nocturnas': hNocturnas,
+        'horas_sabado': hSabado,
+        'monto_tag': tagUnidades,
+        'monto_peonetas': peonetasUnidades,
         'guia_petroleo': petroleo.isEmpty ? null : petroleo,
         'observaciones_conductor': obs.isEmpty ? null : obs,
         'finalizado_en': DateTime.now().toUtc().toIso8601String(),
@@ -940,7 +1082,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
             const Center(child: Padding(padding: EdgeInsets.all(20), child: Text('No tienes viajes pendientes asignados.')))
           else
             for (final viaje in _viajesPendientes)
-              _tarjetaViaje(Map<String, dynamic>.from(viaje as Map), esEnCurso: false),
+              _tarjetaViaje(RegistroMapa.from(viaje as Map), esEnCurso: false),
 
           if (_viajesRechazados.isNotEmpty) ...[
             const SizedBox(height: 20),
@@ -956,7 +1098,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
             ),
             const SizedBox(height: 12),
             for (final vRech in _viajesRechazados)
-              _tarjetaViaje(Map<String, dynamic>.from(vRech as Map), esEnCurso: false, esRechazado: true),
+              _tarjetaViaje(RegistroMapa.from(vRech as Map), esEnCurso: false, esRechazado: true),
           ],
         ],
       ),
@@ -1197,7 +1339,7 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
   }
 
   // ================================================================= //
-  // VISTA 2: DETALLE DEL VIAJE PENDIENTE (CON BLOQUEO DE ASISTENCIA Y RUTA DOBLE)
+  // VISTA 2: DETALLE DEL VIAJE PENDIENTE
   // ================================================================= //
   Widget _buildDetalleViaje() {
     final viaje = _viajeSeleccionado!;
