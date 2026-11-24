@@ -372,6 +372,10 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
       colorEstadoCiclo = Colors.orangeAccent;
     }
 
+    final String tituloCiclo = _rangoFechasPersonalizado != null
+        ? 'Filtro de Fechas Personalizado'
+        : 'Planilla ${_nombresMeses[_mesCierreCiclo - 1]} $_anioCierreCiclo';
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -421,31 +425,39 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _esCicloAbierto ? Icons.autorenew : Icons.verified_outlined,
-                                    size: 13,
-                                    color: colorEstadoCiclo,
-                                  ),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    textoEstadoCiclo,
-                                    style: TextStyle(
+                            Flexible(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _esCicloAbierto ? Icons.autorenew : Icons.verified_outlined,
+                                      size: 13,
                                       color: colorEstadoCiclo,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(width: 5),
+                                    Flexible(
+                                      child: Text(
+                                        textoEstadoCiclo,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: colorEstadoCiclo,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
+                            const SizedBox(width: 8),
                             Text(
                               'Histórico: ${_todosViajesCompletados.length} vts',
                               style: const TextStyle(color: Colors.white60, fontSize: 11),
@@ -463,28 +475,30 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                               style: IconButton.styleFrom(backgroundColor: Colors.white12),
                             ),
                             Expanded(
-                              child: Column(
-                                children: [
-                                  Text(
-                                    _rangoFechasPersonalizado != null
-                                        ? 'Filtro de Fechas Personalizado'
-                                        : 'Planilla ${_nombresMeses[_mesCierreCiclo - 1]} $_anioCierreCiclo',
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                child: Column(
+                                  children: [
+                                    _TextoMarquesinaPlanilla(
+                                      texto: tituloCiclo,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    _rangoFechasPersonalizado != null
-                                        ? '${_formatearFechaCorta(_rangoFechasPersonalizado!.start)}  al  ${_formatearFechaCorta(_rangoFechasPersonalizado!.end)}'
-                                        : 'Ciclo: 21 ${_mesesCortos[inicioCiclo.month - 1]} ${inicioCiclo.year} al 20 ${_mesesCortos[finCiclo.month - 1]} ${finCiclo.year}',
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(color: Color(0xFFE67E22), fontSize: 12, fontWeight: FontWeight.w600),
-                                  ),
-                                ],
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _rangoFechasPersonalizado != null
+                                          ? '${_formatearFechaCorta(_rangoFechasPersonalizado!.start)}  al  ${_formatearFechaCorta(_rangoFechasPersonalizado!.end)}'
+                                          : 'Ciclo: 21 ${_mesesCortos[inicioCiclo.month - 1]} ${inicioCiclo.year} al 20 ${_mesesCortos[finCiclo.month - 1]} ${finCiclo.year}',
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Color(0xFFE67E22), fontSize: 12, fontWeight: FontWeight.w600),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                             IconButton(
@@ -615,15 +629,16 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                   const SizedBox(height: 18),
 
                   // 3. LISTADO TIPO CARTOLA
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'CARTOLA DE VIAJES (CLIENTE ➔ CONSIGNATARIO)',
                         style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: _primaryColor, letterSpacing: 0.4),
                       ),
+                      const SizedBox(height: 3),
                       Text(
-                        '$totalViajes ${totalViajes == 1 ? "vuelta" : "vueltas"}',
+                        '• $totalViajes ${totalViajes == 1 ? "vuelta" : "vueltas"}',
                         style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600),
                       ),
                     ],
@@ -937,6 +952,97 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Widget tipo cartel/marquesina que desplaza automáticamente el texto horizontalmente
+/// solo cuando su ancho supera el espacio disponible.
+class _TextoMarquesinaPlanilla extends StatefulWidget {
+  final String texto;
+  final TextStyle style;
+
+  const _TextoMarquesinaPlanilla({
+    required this.texto,
+    required this.style,
+  });
+
+  @override
+  State<_TextoMarquesinaPlanilla> createState() => _TextoMarquesinaPlanillaState();
+}
+
+class _TextoMarquesinaPlanillaState extends State<_TextoMarquesinaPlanilla> {
+  final ScrollController _scrollCtrl = ScrollController();
+  int _cicloId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reiniciarCiclo());
+  }
+
+  @override
+  void didUpdateWidget(covariant _TextoMarquesinaPlanilla oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.texto != widget.texto) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _reiniciarCiclo());
+    }
+  }
+
+  void _reiniciarCiclo() {
+    _cicloId++;
+    if (!mounted || !_scrollCtrl.hasClients) return;
+    _scrollCtrl.jumpTo(0);
+
+    final maxScroll = _scrollCtrl.position.maxScrollExtent;
+    if (maxScroll > 1) {
+      _ejecutarDesplazamiento(_cicloId, maxScroll);
+    }
+  }
+
+  Future<void> _ejecutarDesplazamiento(int idActivo, double maxScroll) async {
+    while (mounted && idActivo == _cicloId && _scrollCtrl.hasClients) {
+      await Future.delayed(const Duration(milliseconds: 1100));
+      if (!mounted || idActivo != _cicloId || !_scrollCtrl.hasClients) break;
+
+      final duracionMs = (maxScroll * 28).clamp(1100, 5500).toInt();
+      await _scrollCtrl.animateTo(
+        maxScroll,
+        duration: Duration(milliseconds: duracionMs),
+        curve: Curves.linear,
+      );
+
+      await Future.delayed(const Duration(milliseconds: 1100));
+      if (!mounted || idActivo != _cicloId || !_scrollCtrl.hasClients) break;
+
+      await _scrollCtrl.animateTo(
+        0,
+        duration: const Duration(milliseconds: 650),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _cicloId++;
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      controller: _scrollCtrl,
+      scrollDirection: Axis.horizontal,
+      physics: const NeverScrollableScrollPhysics(),
+      child: Text(
+        widget.texto,
+        maxLines: 1,
+        softWrap: false,
+        textAlign: TextAlign.center,
+        style: widget.style,
       ),
     );
   }

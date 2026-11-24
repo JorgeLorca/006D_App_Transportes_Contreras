@@ -492,268 +492,271 @@ class _MisViajesScreenState extends State<MisViajesScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (BuildContext modalCtx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom,
-                left: 20,
-                right: 20,
-                top: 24,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Finalizar Viaje y Enviar a Planilla',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Complete los datos operativos del recorrido para registrar la vuelta en su planilla.',
-                      style: TextStyle(color: Colors.grey, fontSize: 13),
-                    ),
-                    const SizedBox(height: 18),
+            return FractionallySizedBox(
+              heightFactor: 0.88,
+              child: Padding(
+                padding: const EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 24,
+                ),
+                child: SingleChildScrollView(
+                  physics: const ClampingScrollPhysics(),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Finalizar Viaje y Enviar a Planilla',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Complete los datos operativos del recorrido para registrar la vuelta en su planilla.',
+                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                      ),
+                      const SizedBox(height: 18),
 
-                    if (pedirConsignatario || _catalogoConsignatarios.isNotEmpty) ...[
-                      DropdownButtonFormField<String>(
-                        value: _catalogoConsignatarios.any((c) => c['id']?.toString() == consignatarioElegidoId)
-                            ? consignatarioElegidoId
-                            : null,
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                          labelText: pedirConsignatario
-                              ? 'Consignatario (Destino) * (Pendiente de asignar)'
-                              : 'Consignatario (Destino)',
-                          border: const OutlineInputBorder(),
-                          prefixIcon: const Icon(Icons.location_on_outlined),
+                      if (pedirConsignatario || _catalogoConsignatarios.isNotEmpty) ...[
+                        DropdownButtonFormField<String>(
+                          value: _catalogoConsignatarios.any((c) => c['id']?.toString() == consignatarioElegidoId)
+                              ? consignatarioElegidoId
+                              : null,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            labelText: pedirConsignatario
+                                ? 'Consignatario (Destino) * (Pendiente de asignar)'
+                                : 'Consignatario (Destino)',
+                            border: const OutlineInputBorder(),
+                            prefixIcon: const Icon(Icons.location_on_outlined),
+                          ),
+                          items: _catalogoConsignatarios.map((c) {
+                            final id = (c['id'] ?? '').toString();
+                            final nombre = (c['nombre_empresa'] ?? 'Destino').toString();
+                            return DropdownMenuItem<String>(
+                              value: id,
+                              child: Text(nombre, overflow: TextOverflow.ellipsis),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            setModalState(() {
+                              consignatarioElegidoId = val;
+                            });
+                          },
                         ),
-                        items: _catalogoConsignatarios.map((c) {
-                          final id = (c['id'] ?? '').toString();
-                          final nombre = (c['nombre_empresa'] ?? 'Destino').toString();
-                          return DropdownMenuItem<String>(
-                            value: id,
-                            child: Text(nombre, overflow: TextOverflow.ellipsis),
-                          );
-                        }).toList(),
-                        onChanged: (val) {
-                          setModalState(() {
-                            consignatarioElegidoId = val;
-                          });
-                        },
+                        const SizedBox(height: 12),
+                      ],
+
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: TextField(
+                              controller: numGuiaCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Número de Guía *',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.receipt_long),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 1,
+                            child: TextField(
+                              controller: palletsCtrl,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              decoration: const InputDecoration(
+                                labelText: 'Pallets *',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.inventory_2_outlined),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildSelectorHora(
+                              context: context,
+                              titulo: 'Hora Nocturna (Salida)',
+                              icono: Icons.mode_night,
+                              horaSeleccionada: horaNocturnaSalida,
+                              onTap: () async {
+                                final elegida = await showTimePicker(
+                                  context: context,
+                                  initialTime: horaNocturnaSalida ?? TimeOfDay.now(),
+                                  helpText: 'HORA DE SALIDA NOCTURNA',
+                                );
+                                if (elegida != null) {
+                                  setModalState(() => horaNocturnaSalida = elegida);
+                                }
+                              },
+                              onLimpiar: () => setModalState(() => horaNocturnaSalida = null),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildSelectorHora(
+                              context: context,
+                              titulo: 'Hora Sábado (Salida)',
+                              icono: Icons.calendar_today,
+                              horaSeleccionada: horaSabadoSalida,
+                              onTap: () async {
+                                final elegida = await showTimePicker(
+                                  context: context,
+                                  initialTime: horaSabadoSalida ?? TimeOfDay.now(),
+                                  helpText: 'HORA DE SALIDA SÁBADO',
+                                );
+                                if (elegida != null) {
+                                  setModalState(() => horaSabadoSalida = elegida);
+                                }
+                              },
+                              onLimpiar: () => setModalState(() => horaSabadoSalida = null),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildContadorUnidades(
+                              titulo: 'TAGs (Unidades)',
+                              icono: Icons.toll,
+                              valor: cantidadTags,
+                              onRestar: () => setModalState(() {
+                                if (cantidadTags > 0) cantidadTags--;
+                              }),
+                              onSumar: () => setModalState(() => cantidadTags++),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildContadorUnidades(
+                              titulo: 'Peonetas',
+                              icono: Icons.groups_outlined,
+                              valor: cantidadPeonetas,
+                              onRestar: () => setModalState(() {
+                                if (cantidadPeonetas > 0) cantidadPeonetas--;
+                              }),
+                              onSumar: () => setModalState(() => cantidadPeonetas++),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+
+                      TextField(
+                        controller: guiaPetroleoCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Guía Petróleo (Opcional)',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.local_gas_station),
+                        ),
                       ),
                       const SizedBox(height: 12),
+                      TextField(
+                        controller: obsCtrl,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'Observaciones del Conductor',
+                          hintText: 'Detalle novedades en carga/descarga u otros eventos...',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () {
+                            if (consignatarioElegidoId == null || consignatarioElegidoId!.trim().isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Seleccione el Consignatario (Destino) donde entregó la carga'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                              return;
+                            }
+                            if (numGuiaCtrl.text.trim().isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('El Número de Guía es obligatorio'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                              return;
+                            }
+                            if (palletsCtrl.text.trim().isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Ingrese la cantidad de Pallets'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                              return;
+                            }
+                            Navigator.pop(context);
+                            _procesarFinalizacion(
+                              consignatarioId: consignatarioElegidoId!,
+                              guia: numGuiaCtrl.text.trim(),
+                              pallets: palletsCtrl.text.trim(),
+                              hNocturnas: _timeOfDayADouble(horaNocturnaSalida),
+                              hSabado: _timeOfDayADouble(horaSabadoSalida),
+                              tagUnidades: cantidadTags,
+                              peonetasUnidades: cantidadPeonetas,
+                              petroleo: guiaPetroleoCtrl.text.trim(),
+                              obs: obsCtrl.text.trim(),
+                            );
+                          },
+                          child: const Text(
+                            'CONFIRMAR Y ENVIAR A PLANILLA',
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 46,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: _redColor, width: 1.5),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _mostrarDialogoRechazarViaje();
+                          },
+                          icon: Icon(Icons.flag_rounded, color: _redColor, size: 18),
+                          label: Text(
+                            'MARCAR COMO VIAJE RECHAZADO',
+                            style: TextStyle(color: _redColor, fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                        ),
+                      ),
+                      // Espacio inferior fijo para poder desplazar los campos de abajo por encima del teclado
+                      const SizedBox(height: 280),
                     ],
-
-                    Row(
-                      children: [
-                        Expanded(
-                          flex: 2,
-                          child: TextField(
-                            controller: numGuiaCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Número de Guía *',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.receipt_long),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 1,
-                          child: TextField(
-                            controller: palletsCtrl,
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                            decoration: const InputDecoration(
-                              labelText: 'Pallets *',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.inventory_2_outlined),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Selectores de hora de salida (AM / PM) para Nocturna y Sábado
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildSelectorHora(
-                            context: context,
-                            titulo: 'Hora Nocturna (Salida)',
-                            icono: Icons.mode_night,
-                            horaSeleccionada: horaNocturnaSalida,
-                            onTap: () async {
-                              final elegida = await showTimePicker(
-                                context: context,
-                                initialTime: horaNocturnaSalida ?? TimeOfDay.now(),
-                                helpText: 'HORA DE SALIDA NOCTURNA',
-                              );
-                              if (elegida != null) {
-                                setModalState(() => horaNocturnaSalida = elegida);
-                              }
-                            },
-                            onLimpiar: () => setModalState(() => horaNocturnaSalida = null),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildSelectorHora(
-                            context: context,
-                            titulo: 'Hora Sábado (Salida)',
-                            icono: Icons.calendar_today,
-                            horaSeleccionada: horaSabadoSalida,
-                            onTap: () async {
-                              final elegida = await showTimePicker(
-                                context: context,
-                                initialTime: horaSabadoSalida ?? TimeOfDay.now(),
-                                helpText: 'HORA DE SALIDA SÁBADO',
-                              );
-                              if (elegida != null) {
-                                setModalState(() => horaSabadoSalida = elegida);
-                              }
-                            },
-                            onLimpiar: () => setModalState(() => horaSabadoSalida = null),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Contadores con + y - para TAGs y Peonetas (Unidades)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildContadorUnidades(
-                            titulo: 'TAGs (Unidades)',
-                            icono: Icons.toll,
-                            valor: cantidadTags,
-                            onRestar: () => setModalState(() {
-                              if (cantidadTags > 0) cantidadTags--;
-                            }),
-                            onSumar: () => setModalState(() => cantidadTags++),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildContadorUnidades(
-                            titulo: 'Peonetas',
-                            icono: Icons.groups_outlined,
-                            valor: cantidadPeonetas,
-                            onRestar: () => setModalState(() {
-                              if (cantidadPeonetas > 0) cantidadPeonetas--;
-                            }),
-                            onSumar: () => setModalState(() => cantidadPeonetas++),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-
-                    TextField(
-                      controller: guiaPetroleoCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Guía Petróleo (Opcional)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.local_gas_station),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: obsCtrl,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'Observaciones del Conductor',
-                        hintText: 'Detalle novedades en carga/descarga u otros eventos...',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        onPressed: () {
-                          if (consignatarioElegidoId == null || consignatarioElegidoId!.trim().isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Seleccione el Consignatario (Destino) donde entregó la carga'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                            return;
-                          }
-                          if (numGuiaCtrl.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('El Número de Guía es obligatorio'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                            return;
-                          }
-                          if (palletsCtrl.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Ingrese la cantidad de Pallets'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                            return;
-                          }
-                          Navigator.pop(context);
-                          _procesarFinalizacion(
-                            consignatarioId: consignatarioElegidoId!,
-                            guia: numGuiaCtrl.text.trim(),
-                            pallets: palletsCtrl.text.trim(),
-                            hNocturnas: _timeOfDayADouble(horaNocturnaSalida),
-                            hSabado: _timeOfDayADouble(horaSabadoSalida),
-                            tagUnidades: cantidadTags,
-                            peonetasUnidades: cantidadPeonetas,
-                            petroleo: guiaPetroleoCtrl.text.trim(),
-                            obs: obsCtrl.text.trim(),
-                          );
-                        },
-                        child: const Text(
-                          'CONFIRMAR Y ENVIAR A PLANILLA',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 46,
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: _redColor, width: 1.5),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _mostrarDialogoRechazarViaje();
-                        },
-                        icon: Icon(Icons.flag_rounded, color: _redColor, size: 18),
-                        label: Text(
-                          'MARCAR COMO VIAJE RECHAZADO',
-                          style: TextStyle(color: _redColor, fontWeight: FontWeight.bold, fontSize: 13),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
+                  ),
                 ),
               ),
             );
