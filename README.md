@@ -14,40 +14,40 @@ Sustituye los registros manuales en papel y canales informales (llamadas y mensa
 
 ## Tecnologías Utilizadas
 * **Frontend Multiplataforma:** Flutter SDK & Dart (base de código unificada para App Móvil Android y Panel Web).
-* **Backend & Cloud (BaaS):** Supabase (PostgreSQL 15+, GoTrue Auth, PostgREST, Cloud Storage y Edge Functions)[cite: 4, 6].
+* **Backend & Cloud (BaaS):** Supabase (PostgreSQL 15+, GoTrue Auth, PostgREST, Cloud Storage y Edge Functions).
 * **Persistencia Local (Offline-First):** SQLite (`sqflite`) + detección de red (`connectivity_plus`) bajo el patrón *Store-and-Forward*.
-* **Despliegue Web:** Firebase Hosting (CDN global, HTTPS/TLS y soporte SPA)[cite: 6].
+* **Despliegue Web:** Firebase Hosting (CDN global, HTTPS/TLS y soporte SPA).
 * **Control de Versiones y Gestión:** Git, GitHub y Jira.
 
 ---
 
 ## Instrucciones para ejecutar el proyecto localmente
 **Requisitos Previos**
-* **Flutter SDK y Dart SDK instalados y configurados en el PATH del sistema.
-* **Visual Studio Code (con extensiones de Flutter y Dart) o Android Studio.
-* **Android SDK y un emulador Android configurado o dispositivo físico con depuración USB habilitada.
-* **Navegador web (Google Chrome) para la ejecución del panel administrativo.
+* Flutter SDK y Dart SDK instalados y configurados en el PATH del sistema.
+* Visual Studio Code (con extensiones de Flutter y Dart) o Android Studio.
+* Android SDK y un emulador Android configurado o dispositivo físico con depuración USB habilitada.
+* Navegador web (Google Chrome) para la ejecución del panel administrativo.
 
 **Pasos de Instalación y Ejecución**
-* **1. Clonar el repositorio:
+* **1. Clonar el repositorio:**
 * git clone https://github.com/JorgeLorca/006D_App_Transportes_Contreras.git
 * cd 006D_App_Transportes_Contreras
-* (Ubicarse en la carpeta correspondiente al proyecto Flutter)
+  (Ubicarse en la carpeta correspondiente al proyecto Flutter)
 
-* **2. Verificar el entorno:
+* **2. Verificar el entorno:**
 * flutter doctor
 
-* **3. Instalar dependencias
+* **3. Instalar dependencias**
 * flutter pub get
 
-* **4. Configurar credenciales de Supabase:
+* **4. Configurar credenciales de Supabase:**
 * Verificar que la inicialización del cliente en main.dart / supabase_init.dart cuente con la URL y anonKey del proyecto activo en Supabase.
 
-* **5. Ejecutar la aplicación
+* **5. Ejecutar la aplicación**
 * En dispositivo o emulador Android: flutter run
 * En navegador Web (Panel Administrativo): flutter run -d chrome
 
-* **6. Generar compilaciones de producción (opcional):
+* **6. Generar compilaciones de producción (opcional):**
 * APK Android: flutter build apk --release
 * Web: flutter build web --release
 
@@ -55,9 +55,9 @@ Sustituye los registros manuales en papel y canales informales (llamadas y mensa
 
 ## Integrantes del Equipo y Roles
 
-* **Jorge Lorca — Scrum Master & Lead Developer (Arquitectura Offline-First, sincronización SQLite/Supabase, seguridad RLS y Edge Functions).
-* **Lucas Contreras — Product Owner & Full-Stack Developer (Levantamiento con stakeholders, reglas de negocio logístico/contable, desarrollo frontend y backend).
-* **Valentina Cisterna — Frontend Developer & QA/UX Engineer (Diseño de interfaces adaptativas en Flutter móvil/web, experiencia de usuario y pruebas funcionales).
+* Jorge Lorca — Scrum Master & Lead Developer (Arquitectura Offline-First, sincronización SQLite/Supabase, seguridad RLS y Edge Functions).
+* Lucas Contreras — Product Owner & Full-Stack Developer (Levantamiento con stakeholders, reglas de negocio logístico/contable, desarrollo frontend y backend).
+* Valentina Cisterna — Frontend Developer & QA/UX Engineer (Diseño de interfaces adaptativas en Flutter móvil/web, experiencia de usuario y pruebas funcionales).
 
 ---
 
