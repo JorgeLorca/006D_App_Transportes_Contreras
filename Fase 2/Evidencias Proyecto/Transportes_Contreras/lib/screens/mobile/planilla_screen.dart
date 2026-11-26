@@ -331,28 +331,31 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} hrs';
   }
 
+  String _formatearHoraDecimal(dynamic valor) {
+    final numVal = (valor is num) ? valor.toDouble() : double.tryParse(valor?.toString() ?? '0') ?? 0.0;
+    if (numVal <= 0) return 'No aplica';
+    final int hora = numVal.floor();
+    final int min = ((numVal - hora) * 100).round();
+    return '${hora.toString().padLeft(2, '0')}:${min.toString().padLeft(2, '0')} hrs';
+  }
+
   @override
   Widget build(BuildContext context) {
     final listaCiclo = _viajesFiltrados;
 
     final int totalViajes = listaCiclo.length;
     int totalPallets = 0;
-    double totalHorasNocturnas = 0.0;
-    double totalHorasSabado = 0.0;
+    int totalTags = 0;
 
     for (final v in listaCiclo) {
       totalPallets += (v['pallets'] is int)
           ? (v['pallets'] as int)
           : int.tryParse(v['pallets']?.toString() ?? '0') ?? 0;
-      totalHorasNocturnas += (v['horas_nocturnas'] is num)
-          ? (v['horas_nocturnas'] as num).toDouble()
-          : double.tryParse(v['horas_nocturnas']?.toString() ?? '0') ?? 0.0;
-      totalHorasSabado += (v['horas_sabado'] is num)
-          ? (v['horas_sabado'] as num).toDouble()
-          : double.tryParse(v['horas_sabado']?.toString() ?? '0') ?? 0.0;
+      totalTags += (v['monto_tag'] is int)
+          ? (v['monto_tag'] as int)
+          : int.tryParse(v['monto_tag']?.toString() ?? '0') ?? 0;
     }
 
-    final double totalHorasExtra = totalHorasNocturnas + totalHorasSabado;
     final inicioCiclo = _inicioCicloSeleccionado;
     final finCiclo = _finCicloSeleccionado;
 
@@ -368,6 +371,10 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
       textoEstadoCiclo = 'CICLO CERRADO EL 20 • EN REVISIÓN';
       colorEstadoCiclo = Colors.orangeAccent;
     }
+
+    final String tituloCiclo = _rangoFechasPersonalizado != null
+        ? 'Filtro de Fechas Personalizado'
+        : 'Planilla ${_nombresMeses[_mesCierreCiclo - 1]} $_anioCierreCiclo';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -418,31 +425,39 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _esCicloAbierto ? Icons.autorenew : Icons.verified_outlined,
-                                    size: 13,
-                                    color: colorEstadoCiclo,
-                                  ),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    textoEstadoCiclo,
-                                    style: TextStyle(
+                            Flexible(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _esCicloAbierto ? Icons.autorenew : Icons.verified_outlined,
+                                      size: 13,
                                       color: colorEstadoCiclo,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(width: 5),
+                                    Flexible(
+                                      child: Text(
+                                        textoEstadoCiclo,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: colorEstadoCiclo,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
+                            const SizedBox(width: 8),
                             Text(
                               'Histórico: ${_todosViajesCompletados.length} vts',
                               style: const TextStyle(color: Colors.white60, fontSize: 11),
@@ -460,28 +475,30 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                               style: IconButton.styleFrom(backgroundColor: Colors.white12),
                             ),
                             Expanded(
-                              child: Column(
-                                children: [
-                                  Text(
-                                    _rangoFechasPersonalizado != null
-                                        ? 'Filtro de Fechas Personalizado'
-                                        : 'Planilla ${_nombresMeses[_mesCierreCiclo - 1]} $_anioCierreCiclo',
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                child: Column(
+                                  children: [
+                                    _TextoMarquesinaPlanilla(
+                                      texto: tituloCiclo,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    _rangoFechasPersonalizado != null
-                                        ? '${_formatearFechaCorta(_rangoFechasPersonalizado!.start)}  al  ${_formatearFechaCorta(_rangoFechasPersonalizado!.end)}'
-                                        : 'Ciclo: 21 ${_mesesCortos[inicioCiclo.month - 1]} ${inicioCiclo.year} al 20 ${_mesesCortos[finCiclo.month - 1]} ${finCiclo.year}',
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(color: Color(0xFFE67E22), fontSize: 12, fontWeight: FontWeight.w600),
-                                  ),
-                                ],
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _rangoFechasPersonalizado != null
+                                          ? '${_formatearFechaCorta(_rangoFechasPersonalizado!.start)}  al  ${_formatearFechaCorta(_rangoFechasPersonalizado!.end)}'
+                                          : 'Ciclo: 21 ${_mesesCortos[inicioCiclo.month - 1]} ${inicioCiclo.year} al 20 ${_mesesCortos[finCiclo.month - 1]} ${finCiclo.year}',
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Color(0xFFE67E22), fontSize: 12, fontWeight: FontWeight.w600),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                             IconButton(
@@ -497,7 +514,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                           child: Divider(color: Colors.white12, height: 1),
                         ),
 
-                        // CONTADORES OPERATIVOS (SIN MONTOS DE DINERO POR SECRETO COMERCIAL)
+                        // CONTADORES OPERATIVOS
                         Row(
                           children: [
                             _buildMetricaCiclo(
@@ -514,9 +531,9 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                             ),
                             const SizedBox(width: 8),
                             _buildMetricaCiclo(
-                              valor: '${totalHorasExtra.toStringAsFixed(1)}h',
-                              etiqueta: 'HRS NOCT/SÁB',
-                              icono: Icons.schedule,
+                              valor: totalTags.toString(),
+                              etiqueta: 'TAGS TOTALES',
+                              icono: Icons.toll,
                             ),
                           ],
                         ),
@@ -526,7 +543,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
 
                   const SizedBox(height: 16),
 
-                  // 2. BUSCADOR Y SELECTOR DE FECHAS (MODO CARTOLA)
+                  // 2. BUSCADOR Y SELECTOR DE FECHAS
                   Row(
                     children: [
                       Expanded(
@@ -611,16 +628,17 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
 
                   const SizedBox(height: 18),
 
-                  // 3. LISTADO TIPO CARTOLA CON TODOS LOS DATOS DE LA TABLA VIAJES
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  // 3. LISTADO TIPO CARTOLA
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'CARTOLA DE VIAJES (CLIENTE ➔ CONSIGNATARIO)',
                         style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: _primaryColor, letterSpacing: 0.4),
                       ),
+                      const SizedBox(height: 3),
                       Text(
-                        '$totalViajes ${totalViajes == 1 ? "vuelta" : "vueltas"}',
+                        '• $totalViajes ${totalViajes == 1 ? "vuelta" : "vueltas"}',
                         style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600),
                       ),
                     ],
@@ -712,8 +730,12 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     final hSab = (viaje['horas_sabado'] is num)
         ? (viaje['horas_sabado'] as num).toDouble()
         : double.tryParse(viaje['horas_sabado']?.toString() ?? '0') ?? 0.0;
-    final tieneTag = ((viaje['monto_tag'] is num) ? (viaje['monto_tag'] as num) : int.tryParse(viaje['monto_tag']?.toString() ?? '0') ?? 0) > 0;
-    final tienePeoneta = ((viaje['monto_peonetas'] is num) ? (viaje['monto_peonetas'] as num) : int.tryParse(viaje['monto_peonetas']?.toString() ?? '0') ?? 0) > 0;
+    final int cantTag = (viaje['monto_tag'] is num)
+        ? (viaje['monto_tag'] as num).toInt()
+        : int.tryParse(viaje['monto_tag']?.toString() ?? '0') ?? 0;
+    final int cantPeonetas = (viaje['monto_peonetas'] is num)
+        ? (viaje['monto_peonetas'] as num).toInt()
+        : int.tryParse(viaje['monto_peonetas']?.toString() ?? '0') ?? 0;
     final bool isSynced = (viaje['is_synced'] ?? 1) == 1;
 
     return InkWell(
@@ -795,15 +817,15 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                       if (region.isNotEmpty)
                         Text('📍 $region', style: const TextStyle(fontSize: 11, color: Colors.grey)),
                       if (hNoct > 0)
-                        Text('🌙 ${hNoct}h noct.', style: TextStyle(fontSize: 11, color: _orangeColor, fontWeight: FontWeight.w600)),
+                        Text('🌙 Salida: ${_formatearHoraDecimal(hNoct)}', style: TextStyle(fontSize: 11, color: _orangeColor, fontWeight: FontWeight.w600)),
                       if (hSab > 0)
-                        Text('📅 ${hSab}h sáb.', style: TextStyle(fontSize: 11, color: _orangeColor, fontWeight: FontWeight.w600)),
+                        Text('📅 Sáb: ${_formatearHoraDecimal(hSab)}', style: TextStyle(fontSize: 11, color: _orangeColor, fontWeight: FontWeight.w600)),
                       if (guiaPetroleo.isNotEmpty)
                         Text('⛽ Guía Pet: $guiaPetroleo', style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
-                      if (tieneTag)
-                        const Text('🛣️ TAG Reg.', style: TextStyle(fontSize: 11, color: Colors.teal)),
-                      if (tienePeoneta)
-                        const Text('👷 Peoneta Reg.', style: TextStyle(fontSize: 11, color: Colors.indigo)),
+                      if (cantTag > 0)
+                        Text('🛣️ $cantTag TAGs', style: const TextStyle(fontSize: 11, color: Colors.teal, fontWeight: FontWeight.w600)),
+                      if (cantPeonetas > 0)
+                        Text('👷 $cantPeonetas Peon.', style: const TextStyle(fontSize: 11, color: Colors.indigo, fontWeight: FontWeight.w600)),
                     ],
                   ),
                 ],
@@ -816,7 +838,7 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     );
   }
 
-  /// Modal con TODOS los datos relevantes de la tabla `viajes` para respaldo de planilla y rendición
+  /// Modal con TODOS los datos relevantes de la tabla `viajes`
   void _mostrarDetalleCartola(RegistroMapa viaje, int numeroVuelta) {
     final fechaDt = _obtenerFechaViaje(viaje);
     final cliente = _safeString(viaje['clientes'], ['nombre_empresa', 'nombre', 'razon_social'], 'Cliente Origen');
@@ -830,15 +852,10 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
     final guia = (viaje['numero_guia'] ?? 'Sin Guía').toString();
     final pallets = (viaje['pallets'] ?? 0).toString();
     final guiaPetroleo = (viaje['guia_petroleo'] ?? '').toString();
-    final hNoct = (viaje['horas_nocturnas'] ?? 0).toString();
-    final hSab = (viaje['horas_sabado'] ?? 0).toString();
     final horaCargaProg = (viaje['hora_carga'] ?? '--:--').toString();
     final horaDescargaProg = (viaje['hora_descarga'] ?? '--:--').toString();
     final horaInicioReal = _formatearHoraIso(viaje['iniciado_en']?.toString());
     final horaFinReal = _formatearHoraIso(viaje['finalizado_en']?.toString());
-
-    final tieneTag = ((viaje['monto_tag'] is num) ? (viaje['monto_tag'] as num) : int.tryParse(viaje['monto_tag']?.toString() ?? '0') ?? 0) > 0;
-    final tienePeoneta = ((viaje['monto_peonetas'] is num) ? (viaje['monto_peonetas'] as num) : int.tryParse(viaje['monto_peonetas']?.toString() ?? '0') ?? 0) > 0;
 
     final obsConductor = (viaje['observaciones_conductor'] ?? '').toString();
     final obsAdmin = (viaje['observaciones_admin'] ?? '').toString();
@@ -884,11 +901,14 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
                   _filaFicha('Pallets Movilizados', '$pallets Pallets'),
                   _filaFicha('Horario Programado', 'Carga: $horaCargaProg  |  Descarga: $horaDescargaProg'),
                   _filaFicha('Inicio / Fin Real', 'Inicio: $horaInicioReal  |  Cierre: $horaFinReal'),
-                  _filaFicha('Horas Nocturnas / Sábado', '$hNoct hrs nocturnas  |  $hSab hrs sábado'),
+                  _filaFicha(
+                    'Salida Nocturna / Sábado',
+                    'Nocturna: ${_formatearHoraDecimal(viaje['horas_nocturnas'])}  |  Sábado: ${_formatearHoraDecimal(viaje['horas_sabado'])}',
+                  ),
                   _filaFicha('Guía de Petróleo', guiaPetroleo.isEmpty ? 'No registrada' : guiaPetroleo),
                   _filaFicha(
-                    'TAG / Peonetas',
-                    'TAG: ${tieneTag ? "Rendido en sistema" : "Sin cargo"}  |  Peonetas: ${tienePeoneta ? "Rendido en sistema" : "Sin cargo"}',
+                    'TAGs / Peonetas',
+                    'TAGs: ${viaje['monto_tag'] ?? 0} unid.  |  Peonetas: ${viaje['monto_peonetas'] ?? 0} unid.',
                   ),
                   if (obsConductor.isNotEmpty)
                     _filaFicha('Obs. Conductor', obsConductor),
@@ -932,6 +952,97 @@ class _PlanillaScreenState extends State<PlanillaScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Widget tipo cartel/marquesina que desplaza automáticamente el texto horizontalmente
+/// solo cuando su ancho supera el espacio disponible.
+class _TextoMarquesinaPlanilla extends StatefulWidget {
+  final String texto;
+  final TextStyle style;
+
+  const _TextoMarquesinaPlanilla({
+    required this.texto,
+    required this.style,
+  });
+
+  @override
+  State<_TextoMarquesinaPlanilla> createState() => _TextoMarquesinaPlanillaState();
+}
+
+class _TextoMarquesinaPlanillaState extends State<_TextoMarquesinaPlanilla> {
+  final ScrollController _scrollCtrl = ScrollController();
+  int _cicloId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reiniciarCiclo());
+  }
+
+  @override
+  void didUpdateWidget(covariant _TextoMarquesinaPlanilla oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.texto != widget.texto) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _reiniciarCiclo());
+    }
+  }
+
+  void _reiniciarCiclo() {
+    _cicloId++;
+    if (!mounted || !_scrollCtrl.hasClients) return;
+    _scrollCtrl.jumpTo(0);
+
+    final maxScroll = _scrollCtrl.position.maxScrollExtent;
+    if (maxScroll > 1) {
+      _ejecutarDesplazamiento(_cicloId, maxScroll);
+    }
+  }
+
+  Future<void> _ejecutarDesplazamiento(int idActivo, double maxScroll) async {
+    while (mounted && idActivo == _cicloId && _scrollCtrl.hasClients) {
+      await Future.delayed(const Duration(milliseconds: 1100));
+      if (!mounted || idActivo != _cicloId || !_scrollCtrl.hasClients) break;
+
+      final duracionMs = (maxScroll * 28).clamp(1100, 5500).toInt();
+      await _scrollCtrl.animateTo(
+        maxScroll,
+        duration: Duration(milliseconds: duracionMs),
+        curve: Curves.linear,
+      );
+
+      await Future.delayed(const Duration(milliseconds: 1100));
+      if (!mounted || idActivo != _cicloId || !_scrollCtrl.hasClients) break;
+
+      await _scrollCtrl.animateTo(
+        0,
+        duration: const Duration(milliseconds: 650),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _cicloId++;
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      controller: _scrollCtrl,
+      scrollDirection: Axis.horizontal,
+      physics: const NeverScrollableScrollPhysics(),
+      child: Text(
+        widget.texto,
+        maxLines: 1,
+        softWrap: false,
+        textAlign: TextAlign.center,
+        style: widget.style,
       ),
     );
   }

@@ -1,3 +1,4 @@
+// ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'dart:html' as html;
 import 'dart:ui_web' as ui_web;
 import 'package:flutter/material.dart';
@@ -16,7 +17,8 @@ void registrarIFrameMapa(String viewType, double lat, double lng) {
         ..style.bottom = '0'
         ..style.border = 'none'
         ..style.display = 'block'
-        ..src = 'https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.015}%2C${lat - 0.010}%2C${lng + 0.015}%2C${lat + 0.010}&layer=mapnik&marker=$lat%2C$lng';
+        ..allowFullscreen = true
+        ..src = 'https://maps.google.com/maps?q=$lat,$lng&hl=es&z=16&output=embed';
       return iframe;
     },
   );

@@ -9,6 +9,9 @@ import '../../widgets/admin_shell.dart';
 import 'asignar_viaje_screen.dart';
 import 'web_map_helper.dart';
 import 'gestion_viajes_asignados_screen.dart';
+
+enum ModoCumplimiento { dia, semana, ciclo }
+
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
 
@@ -26,6 +29,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
   Map<String, dynamic>? _ultimoIncidente;
   List<dynamic> _todosLosViajes = [];
+
+  // Estado del Resumen de Cumplimiento (Día / Semana / Ciclo)
+  ModoCumplimiento _modoCumplimiento = ModoCumplimiento.ciclo;
+  DateTime _fechaBaseCumplimiento = DateTime.now();
+  late int _mesCierreResumen;
+  late int _anioCierreResumen;
 
   // Filtros de la tabla de viajes
   final TextEditingController _busquedaViajesCtrl = TextEditingController();
@@ -47,9 +56,122 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   bool _descripcionExpandida = false;
   bool _recargandoIncidentes = false;
 
+  static const List<String> _nombresMesesCiclo = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+  ];
+
+  static const List<String> _mesesCortosCiclo = [
+    'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+    'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
+  ];
+
+  /// Devuelve (mesCierre, anioCierre) del ciclo activo (21 del mes anterior al 20 del mes actual)
+  (int, int) _obtenerCicloActual() {
+    final hoy = DateTime.now();
+    if (hoy.day >= 21) {
+      return hoy.month == 12 ? (1, hoy.year + 1) : (hoy.month + 1, hoy.year);
+    }
+    return (hoy.month, hoy.year);
+  }
+
+  DateTime _inicioCiclo(int mesCierre, int anioCierre) {
+    final mesInicio = mesCierre == 1 ? 12 : mesCierre - 1;
+    final anioInicio = mesCierre == 1 ? anioCierre - 1 : anioCierre;
+    return DateTime(anioInicio, mesInicio, 21, 0, 0, 0);
+  }
+
+  DateTime _finCiclo(int mesCierre, int anioCierre) {
+    return DateTime(anioCierre, mesCierre, 20, 23, 59, 59);
+  }
+
+  DateTime _inicioSemana(DateTime ref) {
+    final lunes = ref.subtract(Duration(days: ref.weekday - 1));
+    return DateTime(lunes.year, lunes.month, lunes.day, 0, 0, 0);
+  }
+
+  DateTime _finSemana(DateTime ref) {
+    final inicio = _inicioSemana(ref);
+    final domingo = inicio.add(const Duration(days: 6));
+    return DateTime(domingo.year, domingo.month, domingo.day, 23, 59, 59);
+  }
+
+  void _seleccionarModoCumplimiento(ModoCumplimiento nuevoModo) {
+    if (_modoCumplimiento == nuevoModo) return;
+    setState(() {
+      _modoCumplimiento = nuevoModo;
+      if (nuevoModo == ModoCumplimiento.dia || nuevoModo == ModoCumplimiento.semana) {
+        _fechaBaseCumplimiento = DateTime.now();
+      } else {
+        final (mesAct, anioAct) = _obtenerCicloActual();
+        _mesCierreResumen = mesAct;
+        _anioCierreResumen = anioAct;
+      }
+    });
+  }
+
+  void _navegarPeriodoCumplimiento(int delta) {
+    setState(() {
+      if (_modoCumplimiento == ModoCumplimiento.dia) {
+        _fechaBaseCumplimiento = _fechaBaseCumplimiento.add(Duration(days: delta));
+      } else if (_modoCumplimiento == ModoCumplimiento.semana) {
+        _fechaBaseCumplimiento = _fechaBaseCumplimiento.add(Duration(days: delta * 7));
+      } else {
+        final nueva = DateTime(_anioCierreResumen, _mesCierreResumen + delta, 1);
+        _mesCierreResumen = nueva.month;
+        _anioCierreResumen = nueva.year;
+      }
+    });
+  }
+
+  Future<void> _elegirFechaCumplimiento() async {
+    if (_modoCumplimiento == ModoCumplimiento.ciclo) return;
+    final now = DateTime.now();
+    final elegida = await showDatePicker(
+      context: context,
+      initialDate: _fechaBaseCumplimiento,
+      firstDate: DateTime(2024),
+      lastDate: DateTime(now.year + 2),
+      helpText: _modoCumplimiento == ModoCumplimiento.dia
+          ? 'Seleccionar día de cumplimiento'
+          : 'Seleccionar cualquier día de la semana',
+      cancelText: 'CANCELAR',
+      confirmText: 'ACEPTAR',
+      locale: const Locale('es', 'CL'),
+    );
+    if (elegida != null) {
+      setState(() {
+        _fechaBaseCumplimiento = elegida;
+      });
+    }
+  }
+
+  (DateTime, DateTime) _obtenerRangoActivoCumplimiento() {
+    if (_modoCumplimiento == ModoCumplimiento.dia) {
+      final d = _fechaBaseCumplimiento;
+      return (
+        DateTime(d.year, d.month, d.day, 0, 0, 0),
+        DateTime(d.year, d.month, d.day, 23, 59, 59),
+      );
+    } else if (_modoCumplimiento == ModoCumplimiento.semana) {
+      return (
+        _inicioSemana(_fechaBaseCumplimiento),
+        _finSemana(_fechaBaseCumplimiento),
+      );
+    } else {
+      return (
+        _inicioCiclo(_mesCierreResumen, _anioCierreResumen),
+        _finCiclo(_mesCierreResumen, _anioCierreResumen),
+      );
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    final (mesAct, anioAct) = _obtenerCicloActual();
+    _mesCierreResumen = mesAct;
+    _anioCierreResumen = anioAct;
     _cargarMetricas();
   }
 
@@ -63,25 +185,33 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Future<void> _cargarMetricas() async {
     try {
       final supabase = Supabase.instance.client;
+      final (mesCicloActual, anioCicloActual) = _obtenerCicloActual();
+      final inicioCicloIso = _inicioCiclo(mesCicloActual, anioCicloActual).toUtc().toIso8601String();
+      final finCicloIso = _finCiclo(mesCicloActual, anioCicloActual).toUtc().toIso8601String();
 
       final results = await Future.wait([
         supabase.from('conductores').count(CountOption.exact),
         supabase.from('viajes').count(CountOption.exact).eq('estado', 'en_curso'),
         supabase.from('viajes').count(CountOption.exact).eq('estado', 'pendiente'),
-        supabase.from('incidentes').count(CountOption.exact).catchError((_) => 0),
+        supabase
+            .from('incidentes')
+            .count(CountOption.exact)
+            .gte('reportado_en', inicioCicloIso)
+            .lte('reportado_en', finCicloIso)
+            .catchError((_) => 0),
         supabase
             .from('incidentes')
             .select('id, conductor_rut, tipo_incidente, gravedad, descripcion, latitud, longitud, url_evidencia_fotografica, reportado_en, conductores(nombre_completo, telefono)')
+            .gte('reportado_en', inicioCicloIso)
+            .lte('reportado_en', finCicloIso)
             .order('reportado_en', ascending: false)
             .limit(1)
             .catchError((_) => <dynamic>[]),
-        // Todos los viajes ordenados por fecha_viaje descendente
         supabase
             .from('viajes')
             .select('*, clientes(nombre_empresa)')
             .order('fecha_viaje', ascending: false)
             .catchError((_) => <dynamic>[]),
-        // Catálogos para cruzar IDs con nombres/patentes
         supabase.from('conductores').select('*').catchError((_) => <dynamic>[]),
         supabase.from('camiones').select('*').catchError((_) => <dynamic>[]),
         supabase.from('consignatarios').select('*').catchError((_) => <dynamic>[]),
@@ -91,7 +221,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       final int conductoresCount = results[0] as int;
       final int activosCount = results[1] as int;
       final int pendientesCount = results[2] as int;
-      final int totalIncidentes = results[3] as int;
+      final int totalIncidentesCiclo = results[3] as int;
       final List<dynamic> incidentesData = results[4] as List<dynamic>;
       final List<dynamic> viajesData = results[5] as List<dynamic>;
 
@@ -143,7 +273,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           _conductoresCount = conductoresCount;
           _viajesActivosCount = activosCount;
           _cargasPendientesCount = pendientesCount;
-          _alertasCount = totalIncidentes;
+          _alertasCount = totalIncidentesCiclo;
           _ultimoIncidente = ultimoIncidente;
           _todosLosViajes = viajesData;
           _mapaConductores = mapCond;
@@ -181,6 +311,83 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       return DateTime(parsed.year, parsed.month, parsed.day);
     }
     return null;
+  }
+
+  /// Combina fecha_viaje (YYYY-MM-DD) con hora_descarga (HH:mm:ss) en hora local
+  DateTime? _obtenerFechaHoraLimiteDescarga(dynamic item) {
+    final fechaBase = _obtenerFechaViaje(item);
+    if (fechaBase == null) return null;
+
+    final horaRaw = (item['hora_descarga'] ?? '').toString().trim();
+    if (horaRaw.isEmpty || horaRaw.toLowerCase() == 'null') {
+      return DateTime(fechaBase.year, fechaBase.month, fechaBase.day, 23, 59, 59);
+    }
+
+    final partes = horaRaw.split(':');
+    final int hora = int.tryParse(partes[0]) ?? 23;
+    final int min = partes.length > 1 ? (int.tryParse(partes[1]) ?? 59) : 59;
+    final int seg = partes.length > 2 ? (int.tryParse(partes[2].split('.').first) ?? 0) : 0;
+
+    return DateTime(fechaBase.year, fechaBase.month, fechaBase.day, hora, min, seg);
+  }
+
+  Map<String, dynamic> _calcularMetricasCumplimiento() {
+    final (inicio, fin) = _obtenerRangoActivoCumplimiento();
+    final ahora = DateTime.now();
+
+    int realizados = 0;
+    int aTiempo = 0;
+    int retrasados = 0;
+    int pendientes = 0;
+    int totalOperativos = 0;
+
+    for (final v in _todosLosViajes) {
+      final fechaViaje = _obtenerFechaViaje(v);
+      if (fechaViaje == null) continue;
+      if (fechaViaje.isBefore(inicio) || fechaViaje.isAfter(fin)) continue;
+
+      final estado = (v['estado'] ?? '').toString().toLowerCase().trim();
+      final limiteDescarga = _obtenerFechaHoraLimiteDescarga(v);
+
+      if (estado != 'rechazado') {
+        totalOperativos++;
+      }
+
+      if (estado == 'pendiente') {
+        pendientes++;
+      }
+
+      if (estado == 'completado') {
+        realizados++;
+
+        final finRaw = (v['finalizado_en'] ?? '').toString().trim();
+        final finalizadoDt = DateTime.tryParse(finRaw)?.toLocal();
+
+        if (limiteDescarga != null && finalizadoDt != null) {
+          if (!finalizadoDt.isAfter(limiteDescarga)) {
+            aTiempo++;
+          } else {
+            retrasados++;
+          }
+        } else {
+          aTiempo++;
+        }
+      } else if (estado != 'rechazado') {
+        if (limiteDescarga != null && ahora.isAfter(limiteDescarga)) {
+          retrasados++;
+        }
+      }
+    }
+
+    final double porcentaje = totalOperativos > 0 ? (realizados / totalOperativos) : 0.0;
+
+    return {
+      'realizados': realizados,
+      'aTiempo': aTiempo,
+      'retrasados': retrasados,
+      'pendientes': pendientes,
+      'porcentaje': porcentaje,
+    };
   }
 
   bool _mismoDia(DateTime a, DateTime b) {
@@ -472,7 +679,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Cabecera
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -542,13 +748,11 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 const Divider(height: 1, color: AppColors.border),
                 const SizedBox(height: 14),
 
-                // Cuerpo deslizable
                 Flexible(
                   child: SingleChildScrollView(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // 1. Asignación y Ruta
                         _buildTituloSeccionModal('ASIGNACIÓN Y RUTA'),
                         _buildCajaSeccionModal([
                           _buildFilaModal('ID Viaje', datosResueltos['id']!),
@@ -562,7 +766,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
                         const SizedBox(height: 16),
 
-                        // 2. Carga, Guías y Horarios
                         _buildTituloSeccionModal('CARGA, GUÍAS Y HORARIOS'),
                         _buildCajaSeccionModal([
                           _buildFilaModal('Número de Guía', _valorTexto(item['numero_guia'])),
@@ -576,7 +779,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
                         const SizedBox(height: 16),
 
-                        // 3. Horas Adicionales y Montos
                         _buildTituloSeccionModal('HORAS ADICIONALES Y MONTOS'),
                         _buildCajaSeccionModal([
                           _buildFilaModal('Horas Nocturnas', _valorTexto(item['horas_nocturnas'], '0')),
@@ -587,7 +789,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
                         const SizedBox(height: 16),
 
-                        // 4. Coordenadas GPS
                         _buildTituloSeccionModal('GEOLOCALIZACIÓN'),
                         _buildCajaSeccionModal([
                           _buildFilaModal('Latitud / Longitud Inicio', coordsInicio),
@@ -596,7 +797,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
                         const SizedBox(height: 16),
 
-                        // 5. Observaciones
                         _buildTituloSeccionModal('OBSERVACIONES'),
                         _buildCajaSeccionModal([
                           _buildFilaModal(
@@ -1452,6 +1652,133 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   Widget _buildResumenDiario(bool isSmallMobile) {
+    final metricas = _calcularMetricasCumplimiento();
+    final int realizados = metricas['realizados'] as int;
+    final int aTiempo = metricas['aTiempo'] as int;
+    final int retrasados = metricas['retrasados'] as int;
+    final int pendientes = metricas['pendientes'] as int;
+    final double porcentaje = metricas['porcentaje'] as double;
+
+    String tituloResumen;
+    String textoPeriodo;
+
+    if (_modoCumplimiento == ModoCumplimiento.dia) {
+      tituloResumen = 'Resumen Diario';
+      final d = _fechaBaseCumplimiento;
+      final hoy = DateTime.now();
+      final fechaTxt = '${d.day.toString().padLeft(2, '0')} ${_mesesCortosCiclo[d.month - 1]} ${d.year}';
+      textoPeriodo = _mismoDia(d, hoy) ? 'Hoy • $fechaTxt' : fechaTxt;
+    } else if (_modoCumplimiento == ModoCumplimiento.semana) {
+      tituloResumen = 'Resumen Semanal';
+      final iniSem = _inicioSemana(_fechaBaseCumplimiento);
+      final finSem = _finSemana(_fechaBaseCumplimiento);
+      textoPeriodo =
+          '${iniSem.day} ${_mesesCortosCiclo[iniSem.month - 1]} – ${finSem.day} ${_mesesCortosCiclo[finSem.month - 1]} ${finSem.year}';
+    } else {
+      tituloResumen = 'Resumen del Ciclo';
+      final iniCiclo = _inicioCiclo(_mesCierreResumen, _anioCierreResumen);
+      final finCiclo = _finCiclo(_mesCierreResumen, _anioCierreResumen);
+      textoPeriodo =
+          '21 ${_mesesCortosCiclo[iniCiclo.month - 1]} – 20 ${_mesesCortosCiclo[finCiclo.month - 1]} ${finCiclo.year}';
+    }
+
+    // Selector segmentado mutuamente excluyente: Día | Semana | Ciclo
+    Widget buildPillModo(ModoCumplimiento modo, String label) {
+      final bool activo = _modoCumplimiento == modo;
+      return InkWell(
+        onTap: () => _seleccionarModoCumplimiento(modo),
+        borderRadius: BorderRadius.circular(7),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: activo ? AppColors.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: activo ? Colors.white : AppColors.textSecondary,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final Widget selectorModos = Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          buildPillModo(ModoCumplimiento.dia, 'Día'),
+          buildPillModo(ModoCumplimiento.semana, 'Semana'),
+          buildPillModo(ModoCumplimiento.ciclo, 'Ciclo'),
+        ],
+      ),
+    );
+
+    final bool permiteCalendario = _modoCumplimiento != ModoCumplimiento.ciclo;
+
+    final Widget navegadorPeriodo = Container(
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            onPressed: () => _navegarPeriodoCumplimiento(-1),
+            icon: const Icon(Icons.chevron_left, size: 17, color: AppColors.textPrimary),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+            tooltip: 'Anterior',
+          ),
+          InkWell(
+            onTap: permiteCalendario ? _elegirFechaCumplimiento : null,
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (permiteCalendario) ...[
+                    const Icon(Icons.calendar_today_outlined, size: 12, color: AppColors.primary),
+                    const SizedBox(width: 5),
+                  ],
+                  Text(
+                    textoPeriodo,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: () => _navegarPeriodoCumplimiento(1),
+            icon: const Icon(Icons.chevron_right, size: 17, color: AppColors.textPrimary),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+            tooltip: 'Siguiente',
+          ),
+        ],
+      ),
+    );
+
     return Container(
       padding: EdgeInsets.all(isSmallMobile ? 16 : 24),
       decoration: BoxDecoration(
@@ -1462,48 +1789,103 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Flexible(
-                child: Text(
-                  'Resumen Diario',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  overflow: TextOverflow.ellipsis,
+          if (!isSmallMobile)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tituloResumen,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Monitoreo de cumplimiento en tiempo real',
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    ),
+                  ],
                 ),
-              ),
-              TextButton(onPressed: () {}, child: const Text('Ver Detalles >', style: TextStyle(color: AppColors.primary)))
-            ],
-          ),
-          const Text('Monitoreo de cumplimiento en tiempo real', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                Flexible(
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 10,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      selectorModos,
+                      navegadorPeriodo,
+                    ],
+                  ),
+                ),
+              ],
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  tituloResumen,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Monitoreo de cumplimiento en tiempo real',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    selectorModos,
+                    navegadorPeriodo,
+                  ],
+                ),
+              ],
+            ),
           const SizedBox(height: 24),
           if (!isSmallMobile)
             Row(
               children: [
                 Expanded(
                   flex: 2,
-                  child: _buildProgresoRutas(),
+                  child: _buildProgresoRutas(porcentaje),
                 ),
                 const SizedBox(width: 24),
                 Expanded(
-                  flex: 3,
-                  child: _buildEstadisticasConteo(),
-                )
+                  flex: 4,
+                  child: _buildEstadisticasConteo(
+                    realizados: realizados,
+                    aTiempo: aTiempo,
+                    retrasados: retrasados,
+                    pendientes: pendientes,
+                  ),
+                ),
               ],
             )
           else ...[
-            _buildProgresoRutas(),
+            _buildProgresoRutas(porcentaje),
             const SizedBox(height: 20),
             const Divider(color: AppColors.border),
             const SizedBox(height: 12),
-            _buildEstadisticasConteo(),
+            _buildEstadisticasConteo(
+              realizados: realizados,
+              aTiempo: aTiempo,
+              retrasados: retrasados,
+              pendientes: pendientes,
+            ),
           ],
         ],
       ),
     );
   }
 
-  Widget _buildProgresoRutas() {
+  Widget _buildProgresoRutas(double porcentaje) {
+    final int porcentajeEntero = (porcentaje * 100).round();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1514,28 +1896,37 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
-              child: LinearProgressIndicator(
-                value: 0.85,
-                backgroundColor: Colors.grey[200],
-                color: AppColors.primary,
-                minHeight: 8,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: porcentaje.clamp(0.0, 1.0),
+                  backgroundColor: Colors.grey[200],
+                  color: AppColors.primary,
+                  minHeight: 8,
+                ),
               ),
             ),
             const SizedBox(width: 12),
-            const Text('85%', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            Text('$porcentajeEntero%', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           ],
         )
       ],
     );
   }
 
-  Widget _buildEstadisticasConteo() {
+  Widget _buildEstadisticasConteo({
+    required int realizados,
+    required int aTiempo,
+    required int retrasados,
+    required int pendientes,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
       children: [
-        _buildStatBox('A TIEMPO', '18', AppColors.success),
-        _buildStatBox('RETRASADOS', '4', Colors.red),
-        _buildStatBox('PENDIENTES', '2', Colors.grey),
+        _buildStatBox('REALIZADOS', realizados.toString(), AppColors.primary),
+        _buildStatBox('A TIEMPO', aTiempo.toString(), AppColors.success),
+        _buildStatBox('RETRASADOS', retrasados.toString(), Colors.red),
+        _buildStatBox('PENDIENTES', pendientes.toString(), Colors.grey),
       ],
     );
   }
@@ -1552,6 +1943,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
   Widget _buildAlertasCriticas() {
     if (_ultimoIncidente == null) {
+      final (mesCiclo, anioCiclo) = _obtenerCicloActual();
+      final ini = _inicioCiclo(mesCiclo, anioCiclo);
+      final fin = _finCiclo(mesCiclo, anioCiclo);
+      final rangoTexto =
+          '${ini.day} ${_mesesCortosCiclo[ini.month - 1]} al ${fin.day} ${_mesesCortosCiclo[fin.month - 1]}';
+
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(20),
@@ -1569,7 +1966,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 const Expanded(
                   child: Row(
                     children: [
-                      Icon(Icons.warning_amber_rounded, color: Colors.grey, size: 20),
+                      Icon(Icons.check_circle_outline, color: Colors.green, size: 20),
                       SizedBox(width: 8),
                       Flexible(
                         child: Text(
@@ -1603,16 +2000,33 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: AppColors.border),
               ),
-              child: const Text(
-                'Sin incidentes reportados recientemente.',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Sin incidentes reportados en el ciclo en curso.',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Período activo: $rangoTexto • Flota operando sin novedades.',
+                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 11.5),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 12),
             Center(
               child: TextButton(
                 onPressed: _abrirModalHistorialAlertas,
-                child: const Text('Ver historial de alertas', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                child: const Text(
+                  'Ver historial de alertas anteriores',
+                  style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w600),
+                ),
               ),
             ),
           ],
@@ -1853,7 +2267,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  /// Acciones Rápidas: solo NUEVA CARGA y REPORTES PDF
   Widget _buildAccionesRapidas(bool isSmallMobile) {
     final botones = [
       ElevatedButton.icon(
@@ -1898,7 +2311,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  /// Barra de búsqueda (conductor, patente, cliente, consignatario) + filtro calendario + filtro estado
   Widget _buildBarraFiltrosTabla(bool isSmallMobile) {
     final bool filtroEstadoActivo = _estadoFiltro != 'todos';
 
@@ -2011,7 +2423,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  /// Tabla de Actividad Reciente con 8 columnas (incluye Ver Detalles) y scroll horizontal en pantallas divididas / móviles
   Widget _buildTablaActividadOriginal(bool useHorizontalScroll) {
     final filas = _filasAMostrar;
 
@@ -2091,7 +2502,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  // --- SCROLL LATERAL / PANTALLA DIVIDIDA / MÓVIL (8 COLUMNAS) ---
   Widget _buildEncabezadoActividadMovil() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -2252,7 +2662,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  // --- PC PANTALLA COMPLETA (8 COLUMNAS) ---
   Widget _buildEncabezadoActividadPC() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
@@ -2414,113 +2823,239 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   void _abrirModalHistorialAlertas() {
+    var (mesCierreModal, anioCierreModal) = _obtenerCicloActual();
+    final Future<List<dynamic>> futuroIncidentes = Supabase.instance.client
+        .from('incidentes')
+        .select('id, conductor_rut, tipo_incidente, gravedad, descripcion, latitud, longitud, url_evidencia_fotografica, reportado_en, conductores(nombre_completo, telefono)')
+        .order('reportado_en', ascending: false);
+
     showDialog(
       context: context,
       builder: (dialogCtx) {
         final screenWidth = MediaQuery.of(dialogCtx).size.width;
         final isCompact = screenWidth < 600;
 
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          backgroundColor: Colors.white,
-          insetPadding: EdgeInsets.symmetric(
-            horizontal: isCompact ? 12 : 24,
-            vertical: 24,
-          ),
-          child: Container(
-            width: 650,
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(dialogCtx).size.height * 0.84,
-            ),
-            padding: EdgeInsets.all(isCompact ? 16 : 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final inicio = _inicioCiclo(mesCierreModal, anioCierreModal);
+            final fin = _finCiclo(mesCierreModal, anioCierreModal);
+            final ahora = DateTime.now();
+            final esCicloAbierto = ahora.isBefore(fin) || ahora.isAtSameMomentAs(fin);
+
+            void cambiarCicloModal(int deltaMeses) {
+              setModalState(() {
+                final nueva = DateTime(anioCierreModal, mesCierreModal + deltaMeses, 1);
+                mesCierreModal = nueva.month;
+                anioCierreModal = nueva.year;
+              });
+            }
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              backgroundColor: Colors.white,
+              insetPadding: EdgeInsets.symmetric(
+                horizontal: isCompact ? 12 : 24,
+                vertical: 24,
+              ),
+              child: Container(
+                width: 680,
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(dialogCtx).size.height * 0.88,
+                ),
+                padding: EdgeInsets.all(isCompact ? 16 : 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Row(
-                        children: const [
-                          Icon(Icons.history_rounded, color: AppColors.primary, size: 22),
-                          SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'Historial de Incidentes',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textPrimary,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Expanded(
+                          child: Row(
+                            children: [
+                              Icon(Icons.history_rounded, color: AppColors.primary, size: 22),
+                              SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Historial de Incidentes',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: AppColors.textSecondary, size: 20),
+                          tooltip: 'Cerrar',
+                          onPressed: () => Navigator.of(dialogCtx).pop(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Registro histórico de incidentes, fallas y retrasos filtrados por ciclo contable (día 21 al 20).',
+                      style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // SELECTOR DE CICLOS (21 AL 20)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F172A),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => cambiarCicloModal(-1),
+                            icon: const Icon(Icons.chevron_left, color: Colors.white, size: 24),
+                            style: IconButton.styleFrom(backgroundColor: Colors.white12),
+                            tooltip: 'Ciclo anterior',
+                          ),
+                          Expanded(
+                            child: Column(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white12,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    esCicloAbierto ? 'CICLO EN CURSO' : 'CICLO CERRADO',
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: esCicloAbierto ? Colors.greenAccent : Colors.orangeAccent,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Período ${_nombresMesesCiclo[mesCierreModal - 1]} $anioCierreModal',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Ciclo: 21 ${_mesesCortosCiclo[inicio.month - 1]} ${inicio.year} al 20 ${_mesesCortosCiclo[fin.month - 1]} ${fin.year}',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Color(0xFFE67E22),
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ),
+                          ),
+                          IconButton(
+                            onPressed: () => cambiarCicloModal(1),
+                            icon: const Icon(Icons.chevron_right, color: Colors.white, size: 24),
+                            style: IconButton.styleFrom(backgroundColor: Colors.white12),
+                            tooltip: 'Ciclo siguiente',
                           ),
                         ],
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: AppColors.textSecondary, size: 20),
-                      tooltip: 'Cerrar',
-                      onPressed: () => Navigator.of(dialogCtx).pop(),
+
+                    const SizedBox(height: 14),
+                    const Divider(height: 1, color: AppColors.border),
+                    const SizedBox(height: 12),
+
+                    Expanded(
+                      child: FutureBuilder<List<dynamic>>(
+                        future: futuroIncidentes,
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return const Center(
+                              child: CircularProgressIndicator(color: AppColors.primary),
+                            );
+                          }
+
+                          if (snapshot.hasError) {
+                            return Center(
+                              child: Text(
+                                'Error al cargar el historial: ${snapshot.error}',
+                                style: const TextStyle(color: Colors.red, fontSize: 13),
+                              ),
+                            );
+                          }
+
+                          final List<dynamic> todos = snapshot.data ?? [];
+                          final List<dynamic> delCiclo = todos.where((raw) {
+                            final dt = DateTime.tryParse((raw['reportado_en'] ?? '').toString())?.toLocal();
+                            if (dt == null) return false;
+                            return !dt.isBefore(inicio) && !dt.isAfter(fin);
+                          }).toList();
+
+                          if (delCiclo.isEmpty) {
+                            return Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.event_busy_outlined, size: 36, color: Color(0xFF94A3B8)),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    'No hay incidentes en el ciclo ${_nombresMesesCiclo[mesCierreModal - 1]} $anioCierreModal.',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Total histórico registrado: ${todos.length}',
+                                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 11.5),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: Text(
+                                  'Mostrando ${delCiclo.length} ${delCiclo.length == 1 ? "incidente" : "incidentes"} en este ciclo (Histórico total: ${todos.length})',
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: ListView.separated(
+                                  itemCount: delCiclo.length,
+                                  separatorBuilder: (_, __) => const SizedBox(height: 14),
+                                  itemBuilder: (context, index) {
+                                    final item = Map<String, dynamic>.from(delCiclo[index] as Map);
+                                    return _buildTarjetaIncidente(item);
+                                  },
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Registro histórico de todos los incidentes, retrasos y reportes emitidos en ruta.',
-                  style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
-                ),
-                const SizedBox(height: 16),
-                const Divider(height: 1, color: AppColors.border),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: FutureBuilder<List<dynamic>>(
-                    future: Supabase.instance.client
-                        .from('incidentes')
-                        .select('id, conductor_rut, tipo_incidente, gravedad, descripcion, latitud, longitud, url_evidencia_fotografica, reportado_en, conductores(nombre_completo, telefono)')
-                        .order('reportado_en', ascending: false),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(
-                          child: CircularProgressIndicator(color: AppColors.primary),
-                        );
-                      }
-
-                      if (snapshot.hasError) {
-                        return Center(
-                          child: Text(
-                            'Error al cargar el historial: ${snapshot.error}',
-                            style: const TextStyle(color: Colors.red, fontSize: 13),
-                          ),
-                        );
-                      }
-
-                      final List<dynamic> incidentes = snapshot.data ?? [];
-
-                      if (incidentes.isEmpty) {
-                        return const Center(
-                          child: Text(
-                            'No hay incidentes registrados en el sistema.',
-                            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                          ),
-                        );
-                      }
-
-                      return ListView.separated(
-                        itemCount: incidentes.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 14),
-                        itemBuilder: (context, index) {
-                          final item = Map<String, dynamic>.from(incidentes[index] as Map);
-                          return _buildTarjetaIncidente(item);
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -2674,15 +3209,22 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     setState(() => _recargandoIncidentes = true);
     try {
       final supabase = Supabase.instance.client;
+      final (mesCicloActual, anioCicloActual) = _obtenerCicloActual();
+      final inicioCicloIso = _inicioCiclo(mesCicloActual, anioCicloActual).toUtc().toIso8601String();
+      final finCicloIso = _finCiclo(mesCicloActual, anioCicloActual).toUtc().toIso8601String();
 
-      final int totalIncidentes = await supabase
+      final int totalIncidentesCiclo = await supabase
           .from('incidentes')
           .count(CountOption.exact)
+          .gte('reportado_en', inicioCicloIso)
+          .lte('reportado_en', finCicloIso)
           .catchError((_) => 0);
 
       final List<dynamic> incidentesData = await supabase
           .from('incidentes')
           .select('id, conductor_rut, tipo_incidente, gravedad, descripcion, latitud, longitud, url_evidencia_fotografica, reportado_en, conductores(nombre_completo, telefono)')
+          .gte('reportado_en', inicioCicloIso)
+          .lte('reportado_en', finCicloIso)
           .order('reportado_en', ascending: false)
           .limit(1)
           .catchError((_) => []);
@@ -2694,7 +3236,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
       if (mounted) {
         setState(() {
-          _alertasCount = totalIncidentes;
+          _alertasCount = totalIncidentesCiclo;
           _ultimoIncidente = ultimoIncidente;
           _recargandoIncidentes = false;
         });

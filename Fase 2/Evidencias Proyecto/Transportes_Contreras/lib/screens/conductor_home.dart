@@ -10,6 +10,7 @@ import 'mobile/asistencia_screen.dart';
 import 'mobile/perfil_conductor_screen.dart';
 import 'mobile/incidentes_screen.dart';
 import 'mobile/planilla_screen.dart';
+import 'mobile/ver_incidentes_screen.dart';
 import '../utils/notificaciones_accidentes_service.dart';
 
 class ConductorHome extends StatefulWidget {
@@ -509,6 +510,24 @@ class _ConductorHomeState extends State<ConductorHome> {
                   onTap: () {
                     Navigator.pop(context);
                     _onItemTapped(3);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626)),
+                  title: const Text('Incidentes en Ruta', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text(
+                    'Alertas globales y mis reportes',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const VerIncidentesScreen()),
+                    ).then((_) {
+                      setState(() => _isLoading = true);
+                      _cargarDatosDashboard();
+                    });
                   },
                 ),
                 const Divider(),
