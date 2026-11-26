@@ -5,6 +5,9 @@ import '../../theme/app_colors.dart';
 import 'trabajador_form_screen.dart';
 import 'modificar/trabajador_modificar_screen.dart';
 import '../../utils/csv_exporter.dart';
+import '../../widgets/page_hero_banner.dart';
+import '../../widgets/entity_list_card.dart';
+import '../../widgets/list_page_widgets.dart';
 
 typedef TrabajadorItem = Map<String, dynamic>;
 
@@ -18,15 +21,17 @@ class ListaTrabajadoresScreen extends StatefulWidget {
 class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
   static const String _bucketDocumentos = 'documentos_identidad';
 
-  final int _itemsPorPagina = 10;
+  final int _itemsPorPagina = 12;
   int _paginaActual = 1;
   bool _ordenAscendente = true;
+
+  // Filtro de estado: 'todos', 'activo', 'en ruta', 'inactivo'
+  String _filtroEstado = 'todos';
 
   List<TrabajadorItem> _datosOriginales = [];
   List<TrabajadorItem> _trabajadores = [];
   bool _isLoading = true;
   final TextEditingController _searchController = TextEditingController();
-  final ScrollController _tablaScrollController = ScrollController();
 
   int get _totalPaginas {
     if (_trabajadores.isEmpty) return 1;
@@ -52,7 +57,6 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
   @override
   void dispose() {
     _searchController.dispose();
-    _tablaScrollController.dispose();
     super.dispose();
   }
 
@@ -339,18 +343,27 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
   void _aplicarFiltrosYOrden() {
     final query = _searchController.text.toLowerCase().trim();
     final queryRutLimpio = query.replaceAll(RegExp(r'[.-]'), '');
+    final queryTelefono = query.replaceAll(RegExp(r'[\s+-]'), '');
 
     final filtrados = _datosOriginales.where((t) {
+      // Filtro por estado
+      if (_filtroEstado != 'todos' &&
+          t['estado'].toString().toLowerCase().trim() != _filtroEstado) {
+        return false;
+      }
+
       if (query.isEmpty) return true;
       final nombre = t['nombre'].toString().toLowerCase();
       final rut = t['rut'].toString().toLowerCase();
       final rutLimpio = rut.replaceAll(RegExp(r'[.-]'), '');
+      final telefono = t['telefono'].toString().replaceAll(RegExp(r'[\s+-]'), '');
 
       final coincideNombre = nombre.contains(query);
       final coincideRut = rut.contains(query) ||
           (queryRutLimpio.isNotEmpty && rutLimpio.contains(queryRutLimpio));
+      final coincideTelefono = queryTelefono.isNotEmpty && telefono.contains(queryTelefono);
 
-      return coincideNombre || coincideRut;
+      return coincideNombre || coincideRut || coincideTelefono;
     }).toList();
 
     filtrados.sort((a, b) {
@@ -368,12 +381,6 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
   }
 
   void _filtrarTrabajadores(String query) {
-    _paginaActual = 1;
-    _aplicarFiltrosYOrden();
-  }
-
-  void _alternarOrdenNombre() {
-    _ordenAscendente = !_ordenAscendente;
     _paginaActual = 1;
     _aplicarFiltrosYOrden();
   }
@@ -616,11 +623,122 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
     );
   }
 
+  Future<void> _abrirFiltros() async {
+    final r = await mostrarFiltroDialog<String>(
+      context,
+      descripcion: 'Filtrar trabajadores por estado:',
+      actual: _filtroEstado,
+      valorLimpiar: 'todos',
+      opciones: const <OpcionFiltro<String>>[
+        OpcionFiltro(
+          valor: 'todos',
+          titulo: 'Todos los trabajadores',
+          subtitulo: 'Muestra el personal completo sin restricción',
+        ),
+        OpcionFiltro(
+          valor: 'activo',
+          titulo: 'Activo',
+          subtitulo: 'Personal con entrada registrada',
+          color: AppColors.success,
+        ),
+        OpcionFiltro(
+          valor: 'en ruta',
+          titulo: 'En Ruta',
+          subtitulo: 'Conductores con un viaje en curso',
+          color: Color(0xFFD97706),
+        ),
+        OpcionFiltro(
+          valor: 'inactivo',
+          titulo: 'Inactivo',
+          subtitulo: 'Personal sin jornada activa',
+          color: Color(0xFF991B1B),
+        ),
+      ],
+    );
+    if (r == null) return;
+    _filtroEstado = r;
+    _paginaActual = 1;
+    _aplicarFiltrosYOrden();
+  }
+
+  String? get _textoFiltroActivo {
+    switch (_filtroEstado) {
+      case 'activo':
+        return 'Filtro: Activo';
+      case 'en ruta':
+        return 'Filtro: En Ruta';
+      case 'inactivo':
+        return 'Filtro: Inactivo';
+      default:
+        return null;
+    }
+  }
+
+  EstadoTipo _tipoEstado(String estado) {
+    switch (estado.toLowerCase().trim()) {
+      case 'activo':
+        return EstadoTipo.ok;
+      case 'en ruta':
+        return EstadoTipo.alerta;
+      default:
+        return EstadoTipo.peligro;
+    }
+  }
+
+  void _verDetalle(TrabajadorItem item) {
+    final String nombre = item['nombre'].toString();
+    final String rut = item['rut'].toString();
+    final String estado = (item['estado'] ?? 'Inactivo').toString();
+
+    mostrarDetalleDialog(
+      context,
+      icono: Icons.person_outline,
+      titulo: nombre,
+      estado: EstadoBadge(texto: estado, tipo: _tipoEstado(estado)),
+      filas: [
+        DetalleFila('RUT', rut),
+        DetalleFila('Teléfono', item['telefono'].toString()),
+        DetalleFila('Correo', item['email'].toString()),
+        DetalleFila('Último viaje', item['ultimo_viaje'].toString()),
+      ],
+      extra: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _abrirModalDocumento(
+                tituloDocumento: 'Cédula de Identidad',
+                nombreConductor: nombre,
+                rutConductor: rut,
+                rutaArchivo: (item['url_cedula_identidad'] ?? '').toString(),
+              );
+            },
+            icon: const Icon(Icons.badge_outlined, size: 16),
+            label: const Text('Carnet', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _abrirModalDocumento(
+                tituloDocumento: 'Licencia de Conducir',
+                nombreConductor: nombre,
+                rutConductor: rut,
+                rutaArchivo: (item['url_licencia_conducir'] ?? '').toString(),
+              );
+            },
+            icon: const Icon(Icons.drive_eta_outlined, size: 16),
+            label: const Text('Licencia', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final double anchoPantalla = MediaQuery.of(context).size.width;
-    final bool esPantallaPequena = anchoPantalla < 750;
-    final bool usarScrollLateralTabla = anchoPantalla < 1200;
+    final bool esPantallaPequena = MediaQuery.of(context).size.width < 750;
     final double paddingHorizontal = esPantallaPequena ? 16.0 : 32.0;
 
     return SingleChildScrollView(
@@ -628,92 +746,63 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Cabecera y Botones de Acción Superiores
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final bool esPantallaAncha = constraints.maxWidth > 750;
-
-              final Widget bloqueTitulos = Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.people_alt_outlined, size: 14, color: AppColors.textSecondary),
-                      SizedBox(width: 6),
-                      Text('RECURSOS HUMANOS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 0.8)),
-                    ],
-                  ),
-                  SizedBox(height: 6),
-                  Wrap(
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 12,
-                    runSpacing: 6,
-                    children: [
-                      const Text('Lista de Trabajadores', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                      if (!_isLoading) _buildBadgeTotalTrabajadores(),
-                    ],
-                  ),
-                ],
-              );
-
-              final Widget bloqueBotones = Wrap(
-                spacing: 12,
-                runSpacing: 10,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: _exportarCsvTrabajadores,
-                    icon: const Icon(Icons.download_outlined, size: 16, color: AppColors.textPrimary),
-                    label: const Text('Exportar CSV', style: TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      side: const BorderSide(color: AppColors.border),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    ),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: () async {
-                      await Navigator.of(context).push(
-                        PageRouteBuilder(
-                          pageBuilder: (_, __, ___) => const TrabajadorFormScreen(),
-                          transitionDuration: Duration.zero,
-                          reverseTransitionDuration: Duration.zero,
-                        ),
-                      );
-                      _cargarTrabajadoresDesdeSupabase();
-                    },
-                    icon: const Icon(Icons.person_add_alt_1, size: 16, color: Colors.white),
-                    label: const Text('AGREGAR TRABAJADOR', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                      elevation: 0,
-                    ),
-                  ),
-                ],
-              );
-
-              if (esPantallaAncha) {
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [bloqueTitulos, bloqueBotones],
-                );
-              } else {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [bloqueTitulos, const SizedBox(height: 16), bloqueBotones],
-                );
-              }
-            },
+          const PageHeroBanner(
+            icon: Icons.groups_outlined,
+            watermarkIcon: Icons.engineering,
+            title: 'Lista de Trabajadores',
+            subtitle: 'Gestiona el personal de la empresa y sus roles en el sistema.',
           ),
-          const SizedBox(height: 24),
-
-          // 3. Buscador y Ordenamiento
-          _buildZonaBuscadorYFiltros(esPantallaPequena),
           const SizedBox(height: 20),
 
-          // 4. Tabla de Trabajadores
+          ListToolbar(
+            controller: _searchController,
+            hint: 'Buscar por nombre, RUT o teléfono...',
+            onChanged: _filtrarTrabajadores,
+            onFiltros: _abrirFiltros,
+            filtroActivoTexto: _textoFiltroActivo,
+            labelAgregar: 'Agregar Trabajador',
+            iconoAgregar: Icons.person_add_alt_1,
+            onAgregar: () async {
+              await Navigator.of(context).push(
+                PageRouteBuilder(
+                  pageBuilder: (_, __, ___) => const TrabajadorFormScreen(),
+                  transitionDuration: Duration.zero,
+                  reverseTransitionDuration: Duration.zero,
+                ),
+              );
+              _cargarTrabajadoresDesdeSupabase();
+            },
+          ),
+          const SizedBox(height: 28),
+
+          ListSectionHeader(
+            titulo: 'Total de Trabajadores',
+            contador: '${_trabajadores.length}',
+            orden: SortDropdown<bool>(
+              etiqueta: 'Ordenar:',
+              valor: _ordenAscendente,
+              opciones: const {true: 'A - Z', false: 'Z - A'},
+              onChanged: (v) {
+                _ordenAscendente = v;
+                _paginaActual = 1;
+                _aplicarFiltrosYOrden();
+              },
+            ),
+            acciones: [
+              ListIconButton(
+                icono: Icons.download_outlined,
+                tooltip: 'Exportar CSV',
+                onPressed: _exportarCsvTrabajadores,
+              ),
+              ListIconButton(
+                icono: Icons.refresh,
+                tooltip: 'Refrescar trabajadores',
+                onPressed: _cargarTrabajadoresDesdeSupabase,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
           if (_isLoading)
             const Center(
               child: Padding(
@@ -722,578 +811,55 @@ class _ListaTrabajadoresScreenState extends State<ListaTrabajadoresScreen> {
               ),
             )
           else if (_trabajadores.isEmpty)
-            _buildCartelSinRegistros()
-          else
-            Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: usarScrollLateralTabla
-                  ? Scrollbar(
-                      controller: _tablaScrollController,
-                      thumbVisibility: true,
-                      child: SingleChildScrollView(
-                        controller: _tablaScrollController,
-                        scrollDirection: Axis.horizontal,
-                        child: SizedBox(
-                          width: 1120,
-                          child: Column(
-                            children: [
-                              _buildEncabezadoOriginal(),
-                              ..._trabajadoresPaginados.map((item) => Column(
-                                    children: [
-                                      _buildFilaOriginal(item),
-                                      const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                                    ],
-                                  )),
-                            ],
-                          ),
-                        ),
-                      ),
-                    )
-                  : Column(
-                      children: [
-                        _buildEncabezadoOriginal(),
-                        ListView.separated(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: _trabajadoresPaginados.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                          itemBuilder: (context, index) {
-                            return _buildFilaOriginal(_trabajadoresPaginados[index]);
-                          },
-                        ),
-                      ],
-                    ),
-            ),
-          const SizedBox(height: 16),
-
-          // 5. Paginación
-          _buildPaginacionResponsiva(esPantallaPequena),
-
-          const SizedBox(height: 48),
-          const Divider(height: 1, color: AppColors.border),
-          const SizedBox(height: 16),
-
-          // 6. Footer
-          _buildFooterResponsivo(esPantallaPequena),
-        ],
-      ),
-    );
-  }
-
-  /// Pastilla con el total de trabajadores, junto al título.
-  Widget _buildBadgeTotalTrabajadores() {
-    final total = _datosOriginales.length;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.primary.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.primary.withOpacity(0.25)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.people_alt_outlined, size: 15, color: AppColors.primary),
-          const SizedBox(width: 6),
-          Text(
-            '$total ${total == 1 ? 'trabajador' : 'trabajadores'}',
-            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: AppColors.primary),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEncabezadoOriginal() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.border)),
-      ),
-      child: const Row(
-        children: [
-          Expanded(flex: 3, child: Text('Trabajador', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-          Expanded(flex: 3, child: Text('Contacto', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-          Expanded(flex: 2, child: Text('Estado', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-          Expanded(flex: 2, child: Text('RUT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-          Expanded(flex: 4, child: Text('Documentos', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-          Expanded(flex: 3, child: Text('Último Viaje (Cliente ➔ Destino)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-          SizedBox(width: 40),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFilaOriginal(TrabajadorItem item) {
-    final String nombre = item['nombre'].toString();
-    final String rut = item['rut'].toString();
-    final String urlCarnet = (item['url_cedula_identidad'] ?? '').toString();
-    final String urlLicencia = (item['url_licencia_conducir'] ?? '').toString();
-
-    final String estadoTexto = (item['estado'] ?? 'Inactivo').toString();
-    final String estadoLower = estadoTexto.toLowerCase();
-    final bool esEnRuta = estadoLower == 'en ruta';
-    final bool esActivo = estadoLower == 'activo';
-
-    final Color colorFondoEstado = esEnRuta
-        ? const Color(0xFFFEF3C7)
-        : (esActivo ? AppColors.successBg : const Color(0xFFF1F5F9));
-    final Color colorTextoEstado = esEnRuta
-        ? const Color(0xFFD97706)
-        : (esActivo ? AppColors.success : const Color(0xFF64748B));
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-      child: Row(
-        children: [
-          // Avatar y Nombre
-          Expanded(
-            flex: 3,
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: AppColors.surfaceMuted,
-                  child: Text(item['iniciales'], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF334155))),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    nombre,
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Contacto
-          Expanded(
-            flex: 3,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.call, size: 12, color: Color(0xFFE67E22)),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        item['telefono'],
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Row(
-                  children: [
-                    const Icon(Icons.mail_outline, size: 12, color: AppColors.textSecondary),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        item['email'],
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          // Estado dinámico real (En Ruta / Activo / Inactivo)
-          Expanded(
-            flex: 2,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: colorFondoEstado, borderRadius: BorderRadius.circular(12)),
-                child: Text(
-                  estadoTexto,
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: colorTextoEstado),
-                ),
-              ),
-            ),
-          ),
-          // RUT
-          Expanded(
-            flex: 2,
-            child: Text(rut, style: const TextStyle(fontSize: 12, color: Color(0xFF334155), fontWeight: FontWeight.w500)),
-          ),
-          // Documentos (Botones Carnet y Licencia)
-          Expanded(
-            flex: 4,
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                SizedBox(
-                  width: 96,
-                  child: OutlinedButton.icon(
-                    onPressed: () => _abrirModalDocumento(
-                      tituloDocumento: 'Cédula de Identidad',
-                      nombreConductor: nombre,
-                      rutConductor: rut,
-                      rutaArchivo: urlCarnet,
-                    ),
-                    icon: const Icon(Icons.badge_outlined, size: 14),
-                    label: const Text('Carnet', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      side: const BorderSide(color: AppColors.border),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 102,
-                  child: OutlinedButton.icon(
-                    onPressed: () => _abrirModalDocumento(
-                      tituloDocumento: 'Licencia de Conducir',
-                      nombreConductor: nombre,
-                      rutConductor: rut,
-                      rutaArchivo: urlLicencia,
-                    ),
-                    icon: const Icon(Icons.drive_eta_outlined, size: 14),
-                    label: const Text('Licencia', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      side: const BorderSide(color: AppColors.border),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Último Viaje (Cliente ➔ Consignatario)
-          Expanded(
-            flex: 3,
-            child: Text(
-              item['ultimo_viaje'],
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: AppColors.textPrimary,
-              ),
-            ),
-          ),
-          // Popup Menú de acciones
-          SizedBox(
-            width: 40,
-            child: PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, size: 18, color: Color(0xFF94A3B8)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              onSelected: (accion) {
-                if (accion == 'modificar') _abrirFormularioEdicion(item);
-                if (accion == 'eliminar') _eliminarTrabajador(item);
-              },
-              itemBuilder: (ctx) => const [
-                PopupMenuItem(
-                  value: 'modificar',
-                  child: Row(
-                    children: [
-                      Icon(Icons.edit_outlined, size: 16, color: AppColors.primary),
-                      SizedBox(width: 8),
-                      Text('Modificar Trabajador', style: TextStyle(fontSize: 12.5, color: AppColors.primary, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'eliminar',
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_outline, size: 16, color: Colors.red),
-                      SizedBox(width: 8),
-                      Text('Eliminar Trabajador', style: TextStyle(fontSize: 12.5, color: Colors.red, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildZonaBuscadorYFiltros(bool esPantallaPequena) {
-    final Widget campoInput = Container(
-      height: 40,
-      decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: TextField(
-        controller: _searchController,
-        onChanged: _filtrarTrabajadores,
-        style: const TextStyle(fontSize: 13),
-        decoration: InputDecoration(
-          hintText: 'Buscar por nombre, apellido o RUT...',
-          hintStyle: const TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
-          prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF94A3B8)),
-          suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear, size: 16, color: Color(0xFF94A3B8)),
-                  onPressed: () {
-                    _searchController.clear();
-                    _filtrarTrabajadores('');
-                  },
-                )
-              : null,
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 9),
-        ),
-      ),
-    );
-
-    final Widget botonRecargar = IconButton(
-      tooltip: 'Refrescar trabajadores',
-      icon: const Icon(Icons.refresh, size: 20, color: AppColors.textSecondary),
-      onPressed: _cargarTrabajadoresDesdeSupabase,
-    );
-
-    final Widget selectorOrden = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text('Ordenar por:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
-        const SizedBox(width: 6),
-        InkWell(
-          onTap: _alternarOrdenNombre,
-          borderRadius: BorderRadius.circular(6),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE2E8F0),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _ordenAscendente ? 'Nombre (A-Z)' : 'Nombre (Z-A)',
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Icon(
-                  _ordenAscendente ? Icons.arrow_upward : Icons.arrow_downward,
-                  size: 13,
-                  color: AppColors.textPrimary,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-
-    return Container(
-      padding: const EdgeInsets.all(12.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: esPantallaPequena
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                campoInput,
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    selectorOrden,
-                    botonRecargar,
-                  ],
-                ),
-              ],
+            const ListEmptyState(
+              icono: Icons.person_off_outlined,
+              titulo: 'No se encontraron trabajadores registrados',
+              mensaje: 'No hay personal en la base de datos o el criterio de búsqueda no arrojó resultados.',
             )
-          : Row(
-              children: [
-                Expanded(child: campoInput),
-                const SizedBox(width: 16),
-                selectorOrden,
-                const SizedBox(width: 8),
-                botonRecargar,
-              ],
+          else
+            EntityGrid(
+              itemCount: _trabajadoresPaginados.length,
+              anchoMinimo: 460,
+              maxColumnas: 2,
+              altoItem: 112,
+              itemBuilder: (context, index) {
+                final item = _trabajadoresPaginados[index];
+                final String estado = (item['estado'] ?? 'Inactivo').toString();
+                return EntityListCard(
+                  leading: CardAvatar.iniciales(item['iniciales'].toString()),
+                  titulo: item['nombre'].toString(),
+                  estado: EstadoBadge(texto: estado, tipo: _tipoEstado(estado)),
+                  detalles: [
+                    CardInfoLine(texto: 'RUT: ${item['rut']}', destacado: true),
+                    CardInfoLine(icono: Icons.call_outlined, texto: item['telefono'].toString()),
+                  ],
+                  tooltipVer: 'Ver trabajador',
+                  onVer: () => _verDetalle(item),
+                  acciones: [
+                    EntityCardAction(
+                      label: 'Modificar Trabajador',
+                      icono: Icons.edit_outlined,
+                      onTap: () => _abrirFormularioEdicion(item),
+                    ),
+                    EntityCardAction(
+                      label: 'Eliminar Trabajador',
+                      icono: Icons.delete_outline,
+                      destructiva: true,
+                      onTap: () => _eliminarTrabajador(item),
+                    ),
+                  ],
+                );
+              },
             ),
-    );
-  }
 
-  Widget _buildPaginacionResponsiva(bool esPantallaPequena) {
-    final Widget textoConteo = RichText(
-      text: TextSpan(
-        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-        children: [
-          const TextSpan(text: 'Mostrando '),
-          TextSpan(text: '${_trabajadoresPaginados.length}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const TextSpan(text: ' de '),
-          TextSpan(text: '${_trabajadores.length}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const TextSpan(text: ' trabajadores registrados'),
+          const SizedBox(height: 32),
+          ListPaginator(
+            pagina: _paginaActual,
+            total: _totalPaginas,
+            onChanged: (p) => setState(() => _paginaActual = p),
+          ),
+          const SizedBox(height: 24),
         ],
-      ),
-    );
-
-    final Widget botonesPaginador = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildBotonNumeroPagina(1, habilitado: 1 <= _totalPaginas),
-        const SizedBox(width: 4),
-        _buildBotonNumeroPagina(2, habilitado: 2 <= _totalPaginas),
-        const SizedBox(width: 4),
-        _buildBotonNumeroPagina(3, habilitado: 3 <= _totalPaginas),
-      ],
-    );
-
-    if (!esPantallaPequena) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [textoConteo, botonesPaginador],
-      );
-    }
-
-    return Column(
-      children: [
-        Center(child: textoConteo),
-        const SizedBox(height: 12),
-        Center(child: botonesPaginador),
-      ],
-    );
-  }
-
-  Widget _buildFooterResponsivo(bool esPantallaPequena) {
-    final enlaces = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildFooterLink('Soporte Técnico'),
-        const SizedBox(width: 14),
-        _buildFooterLink('Privacidad'),
-      ],
-    );
-
-    const servidorOperativo = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(Icons.circle, color: Colors.green, size: 7),
-        SizedBox(width: 5),
-        Text('SERVIDOR OPERATIVO', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.green)),
-      ],
-    );
-
-    if (!esPantallaPequena) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Text('© 2026 Transportes Contreras Enterprise • Fleet System v4.2.1', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-          Row(
-            children: [
-              enlaces,
-              const SizedBox(width: 16),
-              servidorOperativo,
-            ],
-          ),
-        ],
-      );
-    }
-
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            enlaces,
-            const SizedBox(width: 16),
-            servidorOperativo,
-          ],
-        ),
-        const SizedBox(height: 10),
-        const Text(
-          '© 2026 Transportes Contreras Enterprise • Fleet System v4.2.1',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8)),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCartelSinRegistros() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 48.0, horizontal: 24.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: const BoxDecoration(color: AppColors.surfaceMuted, shape: BoxShape.circle),
-            child: const Icon(Icons.person_off_outlined, size: 40, color: Color(0xFF94A3B8)),
-          ),
-          const SizedBox(height: 16),
-          const Text('No se encontraron trabajadores registrados', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 6),
-          const Text('No hay personal en la base de datos o el criterio de búsqueda no arrojó resultados.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBotonNumeroPagina(int pagina, {required bool habilitado}) {
-    final bool activo = _paginaActual == pagina;
-    return InkWell(
-      onTap: habilitado ? () => setState(() => _paginaActual = pagina) : null,
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        width: 32,
-        height: 32,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: activo ? AppColors.primary : (habilitado ? Colors.white : const Color(0xFFF1F5F9)),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: activo ? AppColors.primary : (habilitado ? AppColors.border : AppColors.border.withOpacity(0.5)),
-          ),
-        ),
-        child: Text(
-          '$pagina',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: activo ? Colors.white : (habilitado ? const Color(0xFF475569) : const Color(0xFFCBD5E1)),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFooterLink(String texto) {
-    return InkWell(
-      onTap: () {},
-      child: Text(
-        texto,
-        style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
       ),
     );
   }

@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/consignatario.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/csv_exporter.dart';
+import '../../widgets/page_hero_banner.dart';
 import 'consignatario_form_screen.dart';
 import 'modificar/consignatario_modificar_screen.dart';
 
@@ -121,9 +122,9 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
     });
   }
 
-  void _cambiarOrden() {
+  void _setOrden(bool ascendente) {
     setState(() {
-      _ordenAscendente = !_ordenAscendente;
+      _ordenAscendente = ascendente;
       _ordenarLista(_consignatarios, _ordenAscendente);
     });
   }
@@ -272,134 +273,33 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
   Widget build(BuildContext context) {
     final double anchoPantalla = MediaQuery.of(context).size.width;
     final bool esPantallaPequena = anchoPantalla < 750;
-    final double paddingHorizontal = esPantallaPequena ? 16.0 : 32.0;
+    final double paddingHorizontal = esPantallaPequena ? 16.0 : 24.0;
 
     return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(horizontal: paddingHorizontal, vertical: 24.0),
+      padding: EdgeInsets.symmetric(horizontal: paddingHorizontal, vertical: 20.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Cabecera y Botones de Acción Responsivos
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final bool esPantallaAncha = constraints.maxWidth > 750;
-
-              final Widget bloqueTextos = Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: const [
-                      Icon(Icons.inventory_2_outlined, size: 14, color: Color(0xFFD97706)),
-                      SizedBox(width: 6),
-                      Text(
-                        'BASE DE DATOS LOGÍSTICA',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFFD97706),
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Lista de Consignatarios',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Visualice y gestione las empresas receptoras de mercancía para la emisión de guías de despacho y manifiestos.',
-                    style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
-                  ),
-                ],
-              );
-
-              final Widget botonCsv = OutlinedButton.icon(
-                onPressed: _exportarCsvConsignatarios,
-                icon: const Icon(Icons.download_outlined, size: 16, color: AppColors.textPrimary),
-                label: const Text(
-                  'Exportar CSV',
-                  style: TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
-                ),
-                style: OutlinedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  side: const BorderSide(color: AppColors.border),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                ),
-              );
-
-              final Widget botonAgregar = ElevatedButton.icon(
-                onPressed: () async {
-                  await Navigator.of(context).push(
-                    PageRouteBuilder(
-                      pageBuilder: (_, __, ___) => const ConsignatarioFormScreen(),
-                      transitionDuration: Duration.zero,
-                      reverseTransitionDuration: Duration.zero,
-                    ),
-                  );
-                  _cargarConsignatariosDesdeSupabase();
-                },
-                icon: const Icon(Icons.add, size: 16, color: Colors.white),
-                label: const Text(
-                  'AGREGAR CONSIGNATARIO',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                  elevation: 0,
-                ),
-              );
-
-              if (esPantallaAncha) {
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: bloqueTextos),
-                    const SizedBox(width: 16),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        botonCsv,
-                        const SizedBox(width: 12),
-                        botonAgregar,
-                      ],
-                    ),
-                  ],
-                );
-              } else {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    bloqueTextos,
-                    const SizedBox(height: 16),
-                    botonCsv,
-                    const SizedBox(height: 10),
-                    botonAgregar,
-                  ],
-                );
-              }
-            },
+          // 1. Banner de cabecera
+          PageHeroBanner(
+            icon: Icons.inventory_2_outlined,
+            watermarkIcon: Icons.local_shipping_outlined,
+            title: 'Lista de Consignatarios',
+            subtitle:
+                'Visualiza y gestiona las empresas receptoras de mercancía para la emisión de guías de despacho y manifiestos.',
+            actions: [_buildBotonCsv(), _buildBotonAgregar()],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
-          // 2. Buscador con Filtros Responsivo
+          // 2. Buscador
           _buildBuscadorResponsivo(esPantallaPequena),
           const SizedBox(height: 24),
 
-          // 3. Fila Directorio de Recepción + Ordenar
+          // 3. Directorio + Ordenar
           _buildCabeceraDirectorio(esPantallaPequena),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
 
-          // 4. Grilla de Consignatarios
+          // 4. Grilla
           if (_isLoading)
             const Center(
               child: Padding(
@@ -420,174 +320,180 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: columnas,
                     crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    mainAxisExtent: 88,
+                    mainAxisSpacing: 14,
+                    mainAxisExtent: 82,
                   ),
-                  itemBuilder: (context, index) {
-                    final item = _consignatariosPaginados[index];
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppColors.border),
-                            ),
-                            child: const Icon(
-                              Icons.domain,
-                              color: Color(0xFF334155),
-                              size: 22,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  item['nombre'],
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13.5,
-                                    color: AppColors.textPrimary,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Row(
-                                  children: [
-                                    const Icon(Icons.place_outlined, size: 13, color: AppColors.textSecondary),
-                                    const SizedBox(width: 4),
-                                    Expanded(
-                                      child: Text(
-                                        item['direccion'],
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 11.5,
-                                          color: AppColors.textSecondary,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          PopupMenuButton<String>(
-                            icon: const Icon(Icons.more_vert, size: 18, color: Color(0xFF94A3B8)),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            onSelected: (accion) {
-                              if (accion == 'modificar') _abrirFormularioEdicion(item);
-                              if (accion == 'eliminar') _eliminarConsignatario(item);
-                            },
-                            itemBuilder: (ctx) => [
-                              PopupMenuItem(
-                                value: 'modificar',
-                                child: Row(
-                                  children: const [
-                                    Icon(Icons.edit_outlined, size: 16, color: AppColors.primary),
-                                    SizedBox(width: 8),
-                                    Text('Modificar Consignatario', style: TextStyle(fontSize: 12.5, color: AppColors.primary, fontWeight: FontWeight.bold)),
-                                  ],
-                                ),
-                              ),
-                              PopupMenuItem(
-                                value: 'eliminar',
-                                child: Row(
-                                  children: const [
-                                    Icon(Icons.delete_outline, size: 16, color: Colors.red),
-                                    SizedBox(width: 8),
-                                    Text('Eliminar Consignatario', style: TextStyle(fontSize: 12.5, color: Colors.red, fontWeight: FontWeight.bold)),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+                  itemBuilder: (context, index) => _buildTarjeta(_consignatariosPaginados[index]),
                 );
               },
             ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 24),
 
           // 5. Paginador
-          Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildBotonPaginadorIcono(
-                  Icons.chevron_left,
-                  habilitado: _paginaActual > 1,
-                  onTap: () => setState(() => _paginaActual--),
-                ),
-                const SizedBox(width: 6),
-                _buildBotonNumeroPagina(1, habilitado: 1 <= _totalPaginas),
-                const SizedBox(width: 4),
-                _buildBotonNumeroPagina(2, habilitado: 2 <= _totalPaginas),
-                const SizedBox(width: 4),
-                _buildBotonNumeroPagina(3, habilitado: 3 <= _totalPaginas),
-                const SizedBox(width: 4),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4.0),
-                  child: Text('...', style: TextStyle(color: Color(0xFF94A3B8))),
-                ),
-                const SizedBox(width: 4),
-                _buildBotonPaginadorIcono(
-                  Icons.chevron_right,
-                  habilitado: _paginaActual < _totalPaginas,
-                  onTap: () => setState(() => _paginaActual++),
-                ),
-              ],
-            ),
-          ),
+          if (!_isLoading && _consignatarios.isNotEmpty) Center(child: _buildPaginador()),
 
-          const SizedBox(height: 48),
+          const SizedBox(height: 40),
           const Divider(height: 1, color: AppColors.border),
           const SizedBox(height: 16),
 
-          // 6. Footer Responsivo
+          // 6. Footer
           _buildFooterResponsivo(esPantallaPequena),
         ],
       ),
     );
   }
 
-  // Buscador Responsivo
-  Widget _buildBuscadorResponsivo(bool esPantallaPequena) {
-    final Widget campoInput = Container(
-      height: 40,
+  // ------------------------------------------------------------- botones
+
+  Widget _buildBotonCsv() {
+    return ElevatedButton.icon(
+      onPressed: _exportarCsvConsignatarios,
+      icon: const Icon(Icons.download_outlined, size: 18, color: AppColors.textPrimary),
+      label: const Text(
+        'Exportar CSV',
+        style: TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      ),
+    );
+  }
+
+  Widget _buildBotonAgregar() {
+    return ElevatedButton.icon(
+      onPressed: () async {
+        await Navigator.of(context).push(
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => const ConsignatarioFormScreen(),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          ),
+        );
+        _cargarConsignatariosDesdeSupabase();
+      },
+      icon: const Icon(Icons.add, size: 18, color: Colors.white),
+      label: const Text(
+        'Agregar Consignatario',
+        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------ tarjeta
+
+  Widget _buildTarjeta(Map<String, dynamic> item) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.border),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: sombraTarjeta,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: const BoxDecoration(color: Color(0xFFEEF1F7), shape: BoxShape.circle),
+            child: const Icon(Icons.apartment_rounded, color: Color(0xFF334155), size: 24),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  item['nombre'],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary),
+                ),
+                const SizedBox(height: 5),
+                Row(
+                  children: [
+                    const Icon(Icons.place_outlined, size: 14, color: AppColors.textSecondary),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        item['direccion'],
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, size: 20, color: Color(0xFF64748B)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            onSelected: (accion) {
+              if (accion == 'modificar') _abrirFormularioEdicion(item);
+              if (accion == 'eliminar') _eliminarConsignatario(item);
+            },
+            itemBuilder: (ctx) => const [
+              PopupMenuItem(
+                value: 'modificar',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_outlined, size: 16, color: AppColors.primary),
+                    SizedBox(width: 8),
+                    Text('Modificar Consignatario',
+                        style: TextStyle(fontSize: 12.5, color: AppColors.primary, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'eliminar',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline, size: 16, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('Eliminar Consignatario',
+                        style: TextStyle(fontSize: 12.5, color: Colors.red, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ----------------------------------------------------------- buscador
+
+  Widget _buildBuscadorResponsivo(bool esPantallaPequena) {
+    return Container(
+      height: 48,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: sombraTarjeta,
       ),
       child: TextField(
         controller: _searchController,
         onChanged: _filtrarConsignatarios,
         style: const TextStyle(fontSize: 13),
         decoration: InputDecoration(
-          hintText: esPantallaPequena
-              ? 'Buscar consignatario...'
-              : 'Buscar consignatario por nombre o dirección...',
-          hintStyle: const TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
-          prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF94A3B8)),
+          hintText: esPantallaPequena ? 'Buscar consignatario...' : 'Buscar consignatario por nombre o dirección...',
+          hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+          prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFF475569)),
           suffixIcon: _searchController.text.isNotEmpty
               ? IconButton(
-                  icon: const Icon(Icons.clear, size: 16, color: Color(0xFF94A3B8)),
+                  icon: const Icon(Icons.clear, size: 18, color: Color(0xFF94A3B8)),
                   onPressed: () {
                     _searchController.clear();
                     _filtrarConsignatarios('');
@@ -595,87 +501,78 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
                 )
               : null,
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 9),
+          contentPadding: const EdgeInsets.symmetric(vertical: 14),
         ),
       ),
-    );
-
-    return Container(
-      padding: const EdgeInsets.all(12.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: campoInput,
     );
   }
 
-  // Cabecera Directorio con Badge de Total y controles de Orden
+  // ------------------------------------------------ directorio + orden
+
   Widget _buildCabeceraDirectorio(bool esPantallaPequena) {
-    final Widget bloqueTitulo = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          'DIRECTORIO DE RECEPCIÓN',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: AppColors.textSecondary,
-            letterSpacing: 0.6,
-          ),
+    final Widget bloqueTitulo = SeccionTitulo(
+      'Directorio de Recepción',
+      trailing: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+        decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(10)),
+        child: Text(
+          '${_consignatarios.length} Total',
+          style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF475569)),
         ),
-        const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE2E8F0),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            '${_consignatarios.length} Total',
-            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
-          ),
-        ),
-      ],
+      ),
     );
 
     final Widget bloqueOrden = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text('Ordenar:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-        const SizedBox(width: 6),
-        InkWell(
-          onTap: _cambiarOrden,
-          borderRadius: BorderRadius.circular(4),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        const Text('Ordenar:', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+        const SizedBox(width: 8),
+        PopupMenuButton<bool>(
+          tooltip: 'Ordenar',
+          onSelected: _setOrden,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: true, child: Text('A-Z', style: TextStyle(fontSize: 13))),
+            PopupMenuItem(value: false, child: Text('Z-A', style: TextStyle(fontSize: 13))),
+          ],
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: sombraTarjeta,
+            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   _ordenAscendente ? 'A-Z' : 'Z-A',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
-                  ),
+                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                 ),
                 const SizedBox(width: 4),
                 Icon(
                   _ordenAscendente ? Icons.arrow_upward : Icons.arrow_downward,
-                  size: 14,
+                  size: 13,
                   color: AppColors.textPrimary,
                 ),
+                const Icon(Icons.keyboard_arrow_down, size: 18, color: AppColors.textPrimary),
               ],
             ),
           ),
         ),
-        const SizedBox(width: 8),
-        IconButton(
-          tooltip: 'Refrescar consignatarios',
-          icon: const Icon(Icons.refresh, size: 18, color: AppColors.textSecondary),
-          onPressed: _cargarConsignatariosDesdeSupabase,
+        const SizedBox(width: 10),
+        Material(
+          color: Colors.white,
+          shape: const CircleBorder(),
+          elevation: 0,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: _cargarConsignatariosDesdeSupabase,
+            child: const Padding(
+              padding: EdgeInsets.all(8),
+              child: Icon(Icons.refresh, size: 18, color: AppColors.textPrimary),
+            ),
+          ),
         ),
       ],
     );
@@ -691,14 +588,91 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         bloqueTitulo,
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            bloqueOrden,
-          ],
+        const SizedBox(height: 10),
+        bloqueOrden,
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------- paginador
+
+  Widget _buildPaginador() {
+    final int total = _totalPaginas;
+    // Ventana de hasta 3 páginas alrededor de la actual.
+    final int inicio = (_paginaActual - 1).clamp(1, total > 3 ? total - 2 : 1).toInt();
+    final int fin = (inicio + 2) > total ? total : inicio + 2;
+    final bool hayMasAdelante = fin < total;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildBotonPaginadorIcono(
+          Icons.chevron_left,
+          habilitado: _paginaActual > 1,
+          onTap: () => setState(() => _paginaActual--),
+        ),
+        const SizedBox(width: 6),
+        for (int p = inicio; p <= fin; p++) ...[
+          _buildBotonNumeroPagina(p),
+          const SizedBox(width: 6),
+        ],
+        if (hayMasAdelante) ...[
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4.0),
+            child: Text('...', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          const SizedBox(width: 6),
+        ],
+        _buildBotonPaginadorIcono(
+          Icons.chevron_right,
+          habilitado: _paginaActual < total,
+          onTap: () => setState(() => _paginaActual++),
         ),
       ],
+    );
+  }
+
+  Widget _buildBotonNumeroPagina(int pagina) {
+    final bool activo = _paginaActual == pagina;
+    return InkWell(
+      onTap: () => setState(() => _paginaActual = pagina),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 34,
+        height: 34,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: activo ? AppColors.primary : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: activo ? null : sombraTarjeta,
+        ),
+        child: Text(
+          '$pagina',
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+            color: activo ? Colors.white : AppColors.textPrimary,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBotonPaginadorIcono(IconData icon, {required bool habilitado, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: habilitado ? onTap : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 34,
+        height: 34,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: sombraTarjeta,
+        ),
+        child: Icon(icon, size: 18, color: habilitado ? AppColors.textPrimary : const Color(0xFFCBD5E1)),
+      ),
     );
   }
 
@@ -796,52 +770,6 @@ class _ListaConsignatariosScreenState extends State<ListaConsignatariosScreen> {
           const SizedBox(height: 6),
           const Text('No hay registros en la base de datos o el término buscado no coincide.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
         ],
-      ),
-    );
-  }
-
-  Widget _buildBotonNumeroPagina(int pagina, {required bool habilitado}) {
-    final bool activo = _paginaActual == pagina;
-    return InkWell(
-      onTap: habilitado ? () => setState(() => _paginaActual = pagina) : null,
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        width: 32,
-        height: 32,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: activo ? AppColors.primary : (habilitado ? Colors.white : const Color(0xFFF8FAFC)),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: activo ? AppColors.primary : (habilitado ? AppColors.border : AppColors.border.withOpacity(0.5)),
-          ),
-        ),
-        child: Text(
-          '$pagina',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: activo ? Colors.white : (habilitado ? const Color(0xFF475569) : const Color(0xFFCBD5E1)),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBotonPaginadorIcono(IconData icon, {required bool habilitado, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: habilitado ? onTap : null,
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        width: 32,
-        height: 32,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: habilitado ? Colors.white : const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: habilitado ? AppColors.border : AppColors.border.withOpacity(0.5)),
-        ),
-        child: Icon(icon, size: 16, color: habilitado ? const Color(0xFF475569) : const Color(0xFFCBD5E1)),
       ),
     );
   }

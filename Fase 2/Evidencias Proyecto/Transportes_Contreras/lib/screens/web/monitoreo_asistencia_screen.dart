@@ -4,6 +4,7 @@ import '../../models/registro_asistencia.dart';
 import '../../repositories/asistencia_repository.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/admin_shell.dart';
+import '../../widgets/page_hero_banner.dart';
 import '../../widgets/paginacion_tabla.dart';
 import '../../widgets/stat_card.dart';
 
@@ -29,9 +30,17 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
   List<RegistroAsistencia> _registros = [];
   bool _cargando = true;
   String? _error;
-  String _busqueda = '';
   int _pagina = 0;
+
+  // Filtros aplicados (los que realmente filtran la tabla).
+  String _busqueda = '';
+  String _tipoAplicado = 'todos';
   DateTime _fechaSeleccionada = DateTime.now();
+
+  // Valores del formulario (se aplican al presionar "Buscar").
+  final TextEditingController _busquedaCtrl = TextEditingController();
+  String _tipoForm = 'todos';
+  DateTime _fechaForm = DateTime.now();
 
   @override
   void initState() {
@@ -42,6 +51,7 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
   @override
   void dispose() {
     _tablaScrollController.dispose();
+    _busquedaCtrl.dispose();
     super.dispose();
   }
 
@@ -76,6 +86,7 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
     final texto = _normalizar(_busqueda.trim());
     return _registros.where((r) {
       if (!_mismoDia(r.horaEvento, _fechaSeleccionada)) return false;
+      if (_tipoAplicado != 'todos' && r.tipoEvento.toLowerCase() != _tipoAplicado) return false;
       if (texto.isNotEmpty) {
         return _normalizar(r.conductorNombre).contains(texto) ||
             _normalizar(r.conductorRut).contains(texto);
@@ -88,7 +99,7 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
     final now = DateTime.now();
     final elegida = await showDatePicker(
       context: context,
-      initialDate: _fechaSeleccionada,
+      initialDate: _fechaForm,
       firstDate: DateTime(2024),
       lastDate: DateTime(now.year + 2),
       helpText: 'Seleccionar día de asistencia',
@@ -96,22 +107,37 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
       confirmText: 'ACEPTAR',
       locale: const Locale('es', 'CL'),
     );
-    if (elegida != null) {
-      setState(() {
-        _fechaSeleccionada = elegida;
-        _pagina = 0;
-      });
-    }
+    if (elegida != null) setState(() => _fechaForm = elegida);
   }
 
-  String get _rotuloFecha {
-    final hoy = DateTime.now();
-    final fechaFmt = '${_dos(_fechaSeleccionada.day)}/${_dos(_fechaSeleccionada.month)}/${_fechaSeleccionada.year}';
-    if (_mismoDia(_fechaSeleccionada, hoy)) {
-      return 'Hoy ($fechaFmt)';
-    }
-    return fechaFmt;
+  void _aplicarFiltros() {
+    setState(() {
+      _fechaSeleccionada = _fechaForm;
+      _busqueda = _busquedaCtrl.text;
+      _tipoAplicado = _tipoForm;
+      _pagina = 0;
+    });
   }
+
+  void _limpiarFiltros() {
+    final hoy = DateTime.now();
+    _busquedaCtrl.clear();
+    setState(() {
+      _fechaForm = hoy;
+      _fechaSeleccionada = hoy;
+      _tipoForm = 'todos';
+      _tipoAplicado = 'todos';
+      _busqueda = '';
+      _pagina = 0;
+    });
+  }
+
+  String _rotuloDe(DateTime fecha) {
+    final fechaFmt = '${_dos(fecha.day)}/${_dos(fecha.month)}/${fecha.year}';
+    return _mismoDia(fecha, DateTime.now()) ? 'Hoy ($fechaFmt)' : fechaFmt;
+  }
+
+  String get _rotuloFecha => _rotuloDe(_fechaSeleccionada);
 
   static String _normalizar(String s) =>
       s.toLowerCase().replaceAll('á', 'a').replaceAll('é', 'e').replaceAll('í', 'i').replaceAll('ó', 'o').replaceAll('ú', 'u').replaceAll('ñ', 'n');
@@ -135,14 +161,23 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
       subtitle: 'Revise las marcas de asistencia de los conductores.',
       eyebrowIcon: Icons.fact_check_outlined,
       child: SingleChildScrollView(
-        padding: EdgeInsets.symmetric(horizontal: esPantallaPequena ? 16 : 32, vertical: 24),
+        padding: EdgeInsets.symmetric(horizontal: esPantallaPequena ? 16 : 24, vertical: 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildControles(),
+            const PageHeroBanner(
+              icon: Icons.calendar_month_rounded,
+              watermarkIcon: Icons.calendar_month_rounded,
+              title: 'Monitoreo de Asistencia',
+              subtitle: 'Revise las marcas de asistencia de los conductores.',
+            ),
             const SizedBox(height: 24),
             _buildMetricas(filtrados.length, conductores),
             const SizedBox(height: 24),
+            const SeccionTitulo('Filtros de Búsqueda'),
+            const SizedBox(height: 12),
+            _buildFiltros(),
+            const SizedBox(height: 16),
             _buildTabla(visibles, filtrados.length, pagina),
           ],
         ),
@@ -150,96 +185,170 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
     );
   }
 
-  // ---------------------------------------------------------------- arriba
+  // --------------------------------------------------------------- filtros
 
-  Widget _buildControles() {
-    return LayoutBuilder(builder: (context, constraints) {
-      final ancho = constraints.maxWidth > 800;
-      final ciclo = _buildCiclo();
-      final busqueda = _buildBusqueda();
-      if (ancho) {
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [ciclo, const SizedBox(width: 24), Expanded(child: busqueda)],
-        );
-      }
-      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [ciclo, const SizedBox(height: 12), busqueda]);
-    });
-  }
+  static const _campoFondo = Color(0xFFF4F6FA);
 
-  Widget _buildCiclo() {
+  Widget _etiqueta(String texto, Widget campo) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text(
-          'DÍA DE ASISTENCIA',
-          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.6, color: AppColors.textSecondary),
-        ),
-        const SizedBox(height: 6),
-        InkWell(
-          onTap: _seleccionarFecha,
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            height: 42,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.calendar_today_outlined, size: 16, color: AppColors.primary),
-                const SizedBox(width: 8),
-                Text(
-                  _rotuloFecha,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-                ),
-              ],
-            ),
-          ),
-        ),
+        Text(texto, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+        const SizedBox(height: 8),
+        campo,
       ],
     );
   }
 
-  Widget _buildBusqueda() {
-    OutlineInputBorder borde(Color c) => OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: c));
-    return Row(
-      children: [
-        Expanded(
-          child: SizedBox(
-            height: 42,
-            child: TextField(
-              onChanged: (v) => setState(() {
-                _busqueda = v;
-                _pagina = 0;
-              }),
-              textAlignVertical: TextAlignVertical.center,
-              style: const TextStyle(fontSize: 13.5, color: AppColors.textPrimary),
-              decoration: InputDecoration(
-                hintText: 'Buscar conductor o RUT...',
-                hintStyle: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary),
-                prefixIcon: const Icon(Icons.search, size: 18, color: AppColors.textSecondary),
-                filled: true,
-                fillColor: Colors.white,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                border: borde(AppColors.border),
-                enabledBorder: borde(AppColors.border),
-                focusedBorder: borde(AppColors.primary),
+  BoxDecoration get _campoDeco => BoxDecoration(
+        color: _campoFondo,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      );
+
+  Widget _buildFiltros() {
+    final fecha = _etiqueta(
+      'Fecha',
+      InkWell(
+        onTap: _seleccionarFecha,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: _campoDeco,
+          child: Row(
+            children: [
+              const Icon(Icons.calendar_today_outlined, size: 18, color: AppColors.textPrimary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _rotuloDe(_fechaForm),
+                  style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                ),
               ),
-            ),
+              const Icon(Icons.keyboard_arrow_down, size: 20, color: AppColors.textPrimary),
+            ],
           ),
         ),
-        IconButton(
-          tooltip: 'Refrescar',
-          icon: const Icon(Icons.refresh, size: 20, color: AppColors.textSecondary),
-          onPressed: _cargando ? null : _cargar,
+      ),
+    );
+
+    final busqueda = _etiqueta(
+      'Rut o Nombre',
+      Container(
+        height: 44,
+        decoration: _campoDeco,
+        child: TextField(
+          controller: _busquedaCtrl,
+          onSubmitted: (_) => _aplicarFiltros(),
+          textAlignVertical: TextAlignVertical.center,
+          style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+          decoration: const InputDecoration(
+            hintText: 'Buscar por rut o nombre...',
+            hintStyle: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            prefixIcon: Icon(Icons.person_outline, size: 20, color: AppColors.textPrimary),
+            border: InputBorder.none,
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(vertical: 14),
+          ),
         ),
-      ],
+      ),
+    );
+
+    final tipo = _etiqueta(
+      'Tipo de marca',
+      Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: _campoDeco,
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            value: _tipoForm,
+            isExpanded: true,
+            icon: const Icon(Icons.keyboard_arrow_down, size: 20, color: AppColors.textPrimary),
+            style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+            borderRadius: BorderRadius.circular(10),
+            items: const [
+              DropdownMenuItem(value: 'todos', child: _ItemTipo(Icons.check_circle_outline, 'Todos')),
+              DropdownMenuItem(value: 'entrada', child: _ItemTipo(Icons.login, 'Entrada')),
+              DropdownMenuItem(value: 'salida', child: _ItemTipo(Icons.logout, 'Salida')),
+            ],
+            onChanged: (v) => setState(() => _tipoForm = v ?? 'todos'),
+          ),
+        ),
+      ),
+    );
+
+    final botonBuscar = ElevatedButton.icon(
+      onPressed: _cargando ? null : _aplicarFiltros,
+      icon: const Icon(Icons.search, size: 18, color: Colors.white),
+      label: const Text('Buscar', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white)),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        elevation: 0,
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 22),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      ),
+    );
+
+    final botonLimpiar = OutlinedButton.icon(
+      onPressed: _limpiarFiltros,
+      icon: const Icon(Icons.refresh, size: 18, color: AppColors.textPrimary),
+      label: const Text('Limpiar', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: Colors.white,
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 22),
+        side: const BorderSide(color: Color(0xFF94A3B8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      ),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: sombraTarjeta,
+      ),
+      child: LayoutBuilder(builder: (context, constraints) {
+        if (constraints.maxWidth > 900) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(flex: 4, child: fecha),
+              const SizedBox(width: 20),
+              Expanded(flex: 5, child: busqueda),
+              const SizedBox(width: 20),
+              Expanded(flex: 4, child: tipo),
+              const SizedBox(width: 20),
+              botonBuscar,
+              const SizedBox(width: 12),
+              botonLimpiar,
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            fecha,
+            const SizedBox(height: 16),
+            busqueda,
+            const SizedBox(height: 16),
+            tipo,
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(child: botonBuscar),
+                const SizedBox(width: 12),
+                Expanded(child: botonLimpiar),
+              ],
+            ),
+          ],
+        );
+      }),
     );
   }
 
@@ -348,20 +457,15 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: sombraTarjeta,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
-            color: AppColors.surfaceMuted,
-            child: const Text(
-              'Registros recientes',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-            ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+            child: SeccionTitulo('Registros recientes'),
           ),
           cuerpo,
         ],
@@ -490,6 +594,22 @@ class _MonitoreoAsistenciaScreenState extends State<MonitoreoAsistenciaScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+class _ItemTipo extends StatelessWidget {
+  final IconData icono;
+  final String texto;
+  const _ItemTipo(this.icono, this.texto);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icono, size: 18, color: AppColors.textPrimary),
+        const SizedBox(width: 12),
+        Text(texto),
+      ],
     );
   }
 }

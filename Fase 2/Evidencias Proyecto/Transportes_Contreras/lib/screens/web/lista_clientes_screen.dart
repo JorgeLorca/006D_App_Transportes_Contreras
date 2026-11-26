@@ -5,6 +5,7 @@ import '../../theme/app_colors.dart';
 import 'cliente_form_screen.dart';
 import 'modificar/cliente_modificar_screen.dart';
 import '../../utils/csv_exporter.dart';
+import '../../widgets/page_hero_banner.dart';
 
 typedef ClienteItem = Map<String, dynamic>;
 
@@ -138,9 +139,8 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
             'nombre': nombre,
             'iniciales': iniciales,
             'contacto': (map['nombre_contacto'] ?? '').toString(),
-            'email': 'contacto@${nombre.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '')}.cl',
             'ubicacion': direccionCompleta,
-            'ultimo_envio': 'Hace 2 días',
+            'hace': _haceTiempo((map['creado_en'] ?? '').toString()),
             'estado': 'ACTIVO',
           };
         }).toList();
@@ -173,13 +173,32 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
     });
   }
 
-  void _alternarOrdenNombre() {
+  void _setOrden(bool ascendente) {
     setState(() {
-      _ordenAscendente = !_ordenAscendente;
+      _ordenAscendente = ascendente;
       _ordenarLista(_datosOriginales);
       _ordenarLista(_clientes);
       _paginaActual = 1;
     });
+  }
+
+  /// Texto relativo ("Hace 3 días") a partir de una fecha ISO. Vacío si no se puede leer.
+  String _haceTiempo(String iso) {
+    final f = DateTime.tryParse(iso);
+    if (f == null) return '';
+    final dias = DateTime.now().difference(f).inDays;
+    if (dias < 1) return 'Hoy';
+    if (dias < 7) return 'Hace $dias ${dias == 1 ? 'día' : 'días'}';
+    if (dias < 30) {
+      final s = dias ~/ 7;
+      return 'Hace $s ${s == 1 ? 'semana' : 'semanas'}';
+    }
+    if (dias < 365) {
+      final m = dias ~/ 30;
+      return 'Hace $m ${m == 1 ? 'mes' : 'meses'}';
+    }
+    final a = dias ~/ 365;
+    return 'Hace $a ${a == 1 ? 'año' : 'años'}';
   }
 
   String _formatearClp(dynamic valor) {
@@ -559,94 +578,32 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
   Widget build(BuildContext context) {
     final double anchoPantalla = MediaQuery.of(context).size.width;
     final bool esPantallaPequena = anchoPantalla < 750;
-    final double paddingHorizontal = esPantallaPequena ? 16.0 : 32.0;
+    final double paddingHorizontal = esPantallaPequena ? 16.0 : 24.0;
 
     return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(horizontal: paddingHorizontal, vertical: 24.0),
+      padding: EdgeInsets.symmetric(horizontal: paddingHorizontal, vertical: 20.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final bool esPantallaAncha = constraints.maxWidth > 750;
-
-              final Widget bloqueTextos = Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'BASE DE DATOS',
-                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary, letterSpacing: 0.8),
-                  ),
-                  SizedBox(height: 6),
-                  Text('Lista de Clientes', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                  SizedBox(height: 4),
-                  Text(
-                    'Gestione las relaciones corporativas y detalles de contacto de su cartera logística de Transportes Contreras.',
-                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                  ),
-                ],
-              );
-
-              final Widget bloqueBotones = Wrap(
-                spacing: 12,
-                runSpacing: 10,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: _exportarCsvClientes,
-                    icon: const Icon(Icons.download_outlined, size: 16, color: AppColors.textPrimary),
-                    label: const Text('Exportar CSV', style: TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      side: const BorderSide(color: AppColors.border),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    ),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: () async {
-                      await Navigator.of(context).push(
-                        PageRouteBuilder(
-                          pageBuilder: (_, __, ___) => const ClienteFormScreen(),
-                          transitionDuration: Duration.zero,
-                          reverseTransitionDuration: Duration.zero,
-                        ),
-                      );
-                      _cargarClientesDesdeSupabase();
-                    },
-                    icon: const Icon(Icons.add, size: 16, color: Colors.white),
-                    label: const Text('AGREGAR CLIENTE', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                      elevation: 0,
-                    ),
-                  ),
-                ],
-              );
-
-              if (esPantallaAncha) {
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [Expanded(child: bloqueTextos), const SizedBox(width: 16), bloqueBotones],
-                );
-              } else {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [bloqueTextos, const SizedBox(height: 16), bloqueBotones],
-                );
-              }
-            },
+          // 1. Banner de cabecera
+          PageHeroBanner(
+            icon: Icons.handshake_outlined,
+            watermarkIcon: Icons.local_shipping_outlined,
+            title: 'Lista de Clientes',
+            subtitle: 'Gestiona las relaciones comerciales y detalles de contacto de tu cartera logística.',
+            actions: [_buildBotonCsv(), _buildBotonAgregar()],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
+          // 2. Buscador
           _buildBuscadorResponsivo(esPantallaPequena),
           const SizedBox(height: 24),
 
+          // 3. Directorio + Ordenar
           _buildCabeceraDirectorio(esPantallaPequena),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
 
+          // 4. Grilla
           if (_isLoading)
             const Center(
               child: Padding(
@@ -659,7 +616,7 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
           else
             LayoutBuilder(
               builder: (context, constraints) {
-                int columnas = constraints.maxWidth > 1050 ? 3 : (constraints.maxWidth > 700 ? 2 : 1);
+                final int columnas = constraints.maxWidth > 1050 ? 3 : (constraints.maxWidth > 700 ? 2 : 1);
                 return GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -668,222 +625,253 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
                     crossAxisCount: columnas,
                     crossAxisSpacing: 16,
                     mainAxisSpacing: 16,
-                    mainAxisExtent: 250,
+                    mainAxisExtent: 206,
                   ),
-                  itemBuilder: (context, index) {
-                    final item = _clientesPaginados[index];
-                    return Container(
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              CircleAvatar(
-                                radius: 22,
-                                backgroundColor: const Color(0xFF334155),
-                                child: Text(item['iniciales'], style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      item['nombre'],
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary, height: 1.2),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Row(
-                                      children: [
-                                        const Icon(Icons.people_outline, size: 14, color: AppColors.textSecondary),
-                                        const SizedBox(width: 4),
-                                        Expanded(
-                                          child: Text('Contacto: ${item['contacto']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                decoration: BoxDecoration(color: AppColors.successBg, borderRadius: BorderRadius.circular(6)),
-                                child: const Text('ACTIVO', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.success)),
-                              ),
-                              PopupMenuButton<String>(
-                                icon: const Icon(Icons.more_vert, size: 18, color: Color(0xFF64748B)),
-                                constraints: const BoxConstraints(),
-                                padding: const EdgeInsets.only(left: 4),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                onSelected: (accion) {
-                                  if (accion == 'modificar') _abrirFormularioEdicion(item);
-                                  if (accion == 'eliminar') _eliminarCliente(item);
-                                },
-                                itemBuilder: (ctx) => [
-                                  PopupMenuItem(
-                                    value: 'modificar',
-                                    child: Row(
-                                      children: const [
-                                        Icon(Icons.edit_outlined, size: 16, color: AppColors.primary),
-                                        SizedBox(width: 8),
-                                        Text('Modificar Cliente', style: TextStyle(fontSize: 12.5, color: AppColors.primary, fontWeight: FontWeight.bold)),
-                                      ],
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'eliminar',
-                                    child: Row(
-                                      children: const [
-                                        Icon(Icons.delete_outline, size: 16, color: Colors.red),
-                                        SizedBox(width: 8),
-                                        Text('Eliminar Cliente', style: TextStyle(fontSize: 12.5, color: Colors.red, fontWeight: FontWeight.bold)),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                          const SizedBox(height: 14),
-
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: const [
-                                        Icon(Icons.mail_outline, size: 13, color: AppColors.textSecondary),
-                                        SizedBox(width: 4),
-                                        Text('EMAIL', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 0.5)),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 3),
-                                    Text(item['email'], maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, color: Color(0xFF1E293B), fontWeight: FontWeight.w500)),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: const [
-                                        Icon(Icons.call_outlined, size: 13, color: AppColors.textSecondary),
-                                        SizedBox(width: 4),
-                                        Text('TELÉFONO', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 0.5)),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 3),
-                                    Text(item['telefono'], maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, color: Color(0xFF1E293B), fontWeight: FontWeight.w500)),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: const [
-                                  Icon(Icons.place_outlined, size: 13, color: AppColors.textSecondary),
-                                  SizedBox(width: 4),
-                                  Text('UBICACIÓN', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 0.5)),
-                                ],
-                              ),
-                              const SizedBox(height: 3),
-                              Text(item['ubicacion'], maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, color: Color(0xFF1E293B), fontWeight: FontWeight.w500)),
-                            ],
-                          ),
-                          const Spacer(),
-                          const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                          const SizedBox(height: 10),
-
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(Icons.access_time, size: 13, color: AppColors.textSecondary),
-                                  const SizedBox(width: 4),
-                                  Text('Último envío: ${item['ultimo_envio']}', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                                ],
-                              ),
-                              InkWell(
-                                onTap: () => _abrirModalFichaCliente(item),
-                                borderRadius: BorderRadius.circular(4),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                  child: Row(
-                                    children: const [
-                                      Text('Ver Ficha', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary)),
-                                      SizedBox(width: 2),
-                                      Icon(Icons.chevron_right, size: 14, color: AppColors.primary),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+                  itemBuilder: (context, index) => _buildTarjeta(_clientesPaginados[index]),
                 );
               },
             ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 24),
 
-          Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildBotonNumeroPagina(1, habilitado: 1 <= _totalPaginas),
-                const SizedBox(width: 4),
-                _buildBotonNumeroPagina(2, habilitado: 2 <= _totalPaginas),
-                const SizedBox(width: 4),
-                _buildBotonNumeroPagina(3, habilitado: 3 <= _totalPaginas),
-                const SizedBox(width: 4),
-                const Padding(padding: EdgeInsets.symmetric(horizontal: 4.0), child: Text('...', style: TextStyle(color: Color(0xFF94A3B8)))),
-                _buildBotonNumeroPagina(12, habilitado: 12 <= _totalPaginas),
-              ],
-            ),
-          ),
+          // 5. Paginador
+          if (!_isLoading && _clientes.isNotEmpty) Center(child: _buildPaginador()),
 
-          const SizedBox(height: 48),
+          const SizedBox(height: 40),
           const Divider(height: 1, color: AppColors.border),
           const SizedBox(height: 16),
 
+          // 6. Footer
           _buildFooterResponsivo(esPantallaPequena),
         ],
       ),
     );
   }
 
-  Widget _buildBuscadorResponsivo(bool esPantallaPequena) {
-    final Widget campoInput = Container(
-      height: 40,
+  // ------------------------------------------------------------- botones
+
+  Widget _buildBotonCsv() {
+    return ElevatedButton.icon(
+      onPressed: _exportarCsvClientes,
+      icon: const Icon(Icons.download_outlined, size: 18, color: AppColors.textPrimary),
+      label: const Text(
+        'Exportar CSV',
+        style: TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      ),
+    );
+  }
+
+  Widget _buildBotonAgregar() {
+    return ElevatedButton.icon(
+      onPressed: () async {
+        await Navigator.of(context).push(
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => const ClienteFormScreen(),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          ),
+        );
+        _cargarClientesDesdeSupabase();
+      },
+      icon: const Icon(Icons.add, size: 18, color: Colors.white),
+      label: const Text(
+        'Agregar Cliente',
+        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------ tarjeta
+
+  Widget _lineaDato(IconData icono, String texto) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 5),
+      child: Row(
+        children: [
+          Icon(icono, size: 15, color: AppColors.textSecondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              texto.isEmpty ? '—' : texto,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTarjeta(ClienteItem item) {
+    final String hace = (item['hace'] ?? '').toString();
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 12, 12),
       decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.border),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: sombraTarjeta,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: const BoxDecoration(color: PageHeroBanner.navyClaro, shape: BoxShape.circle),
+                  child: const Icon(Icons.apartment_rounded, color: Colors.white, size: 26),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              item['nombre'],
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14.5,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: AppColors.successBg,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Text(
+                              'ACTIVO',
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.success),
+                            ),
+                          ),
+                          _buildMenuTarjeta(item),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      _lineaDato(Icons.person_outline, 'Contacto: ${item['contacto']}'),
+                      _lineaDato(Icons.phone_outlined, item['telefono']),
+                      _lineaDato(Icons.place_outlined, item['ubicacion']),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Color(0xFFEEF1F7)),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      const Icon(Icons.schedule, size: 15, color: AppColors.textSecondary),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          hace.isEmpty ? 'Sin fecha de registro' : 'Registrado: $hace',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                InkWell(
+                  onTap: () => _abrirModalFichaCliente(item),
+                  borderRadius: BorderRadius.circular(6),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                    child: Row(
+                      children: [
+                        Text('Ver Ficha',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary)),
+                        Icon(Icons.chevron_right, size: 16, color: AppColors.primary),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMenuTarjeta(ClienteItem item) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert, size: 20, color: Color(0xFF64748B)),
+      constraints: const BoxConstraints(),
+      padding: const EdgeInsets.only(left: 2),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      onSelected: (accion) {
+        if (accion == 'modificar') _abrirFormularioEdicion(item);
+        if (accion == 'eliminar') _eliminarCliente(item);
+      },
+      itemBuilder: (ctx) => const [
+        PopupMenuItem(
+          value: 'modificar',
+          child: Row(
+            children: [
+              Icon(Icons.edit_outlined, size: 16, color: AppColors.primary),
+              SizedBox(width: 8),
+              Text('Modificar Cliente',
+                  style: TextStyle(fontSize: 12.5, color: AppColors.primary, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'eliminar',
+          child: Row(
+            children: [
+              Icon(Icons.delete_outline, size: 16, color: Colors.red),
+              SizedBox(width: 8),
+              Text('Eliminar Cliente',
+                  style: TextStyle(fontSize: 12.5, color: Colors.red, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ----------------------------------------------------------- buscador
+
+  Widget _buildBuscadorResponsivo(bool esPantallaPequena) {
+    return Container(
+      height: 48,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: sombraTarjeta,
       ),
       child: TextField(
         controller: _searchController,
@@ -891,11 +879,11 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
         style: const TextStyle(fontSize: 13),
         decoration: InputDecoration(
           hintText: esPantallaPequena ? 'Buscar por empresa, contacto...' : 'Buscar por nombre de empresa, contacto o ubicación...',
-          hintStyle: const TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
-          prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF94A3B8)),
+          hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+          prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFF475569)),
           suffixIcon: _searchController.text.isNotEmpty
               ? IconButton(
-                  icon: const Icon(Icons.clear, size: 16, color: Color(0xFF94A3B8)),
+                  icon: const Icon(Icons.clear, size: 18, color: Color(0xFF94A3B8)),
                   onPressed: () {
                     _searchController.clear();
                     _filtrarClientes('');
@@ -903,70 +891,71 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
                 )
               : null,
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 9),
+          contentPadding: const EdgeInsets.symmetric(vertical: 14),
         ),
       ),
-    );
-
-    return Container(
-      padding: const EdgeInsets.all(12.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: campoInput,
     );
   }
 
+  // ------------------------------------------------ directorio + orden
+
   Widget _buildCabeceraDirectorio(bool esPantallaPequena) {
-    final bloqueTitulo = Row(
-      children: [
-        const Text(
-          'DIRECTORIO EMPRESARIAL',
-          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 0.5),
+    final Widget bloqueTitulo = SeccionTitulo(
+      'Directorio de Clientes',
+      trailing: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+        decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(10)),
+        child: Text(
+          '${_clientes.length} Total',
+          style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF475569)),
         ),
-        const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(10)),
-          child: Text('${_clientes.length} ${_clientes.length == 1 ? 'cliente' : 'clientes'}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
-        ),
-      ],
+      ),
     );
 
-    final bloqueOrden = Row(
+    final Widget bloqueOrden = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text('Ordenar por:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-        const SizedBox(width: 4),
-        InkWell(
-          onTap: _alternarOrdenNombre,
-          borderRadius: BorderRadius.circular(6),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        const Text('Ordenar:', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+        const SizedBox(width: 8),
+        PopupMenuButton<bool>(
+          tooltip: 'Ordenar',
+          onSelected: _setOrden,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: true, child: Text('Nombre (A-Z)', style: TextStyle(fontSize: 13))),
+            PopupMenuItem(value: false, child: Text('Nombre (Z-A)', style: TextStyle(fontSize: 13))),
+          ],
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: sombraTarjeta,
+            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   _ordenAscendente ? 'Nombre (A-Z)' : 'Nombre (Z-A)',
-                  style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.bold),
+                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                 ),
-                const SizedBox(width: 4),
-                Icon(
-                  _ordenAscendente ? Icons.arrow_upward : Icons.arrow_downward,
-                  size: 14,
-                  color: AppColors.primary,
-                ),
+                const Icon(Icons.keyboard_arrow_down, size: 18, color: AppColors.textPrimary),
               ],
             ),
           ),
         ),
-        const SizedBox(width: 4),
-        IconButton(
-          tooltip: 'Refrescar clientes',
-          icon: const Icon(Icons.refresh, size: 18, color: AppColors.textSecondary),
-          onPressed: _cargarClientesDesdeSupabase,
+        const SizedBox(width: 10),
+        Material(
+          color: Colors.white,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: _cargarClientesDesdeSupabase,
+            child: const Padding(
+              padding: EdgeInsets.all(8),
+              child: Icon(Icons.refresh, size: 18, color: AppColors.textPrimary),
+            ),
+          ),
         ),
       ],
     );
@@ -980,11 +969,88 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      children: [bloqueTitulo, const SizedBox(height: 10), bloqueOrden],
+    );
+  }
+
+  // ---------------------------------------------------------- paginador
+
+  Widget _buildPaginador() {
+    final int total = _totalPaginas;
+    final int inicio = (_paginaActual - 1).clamp(1, total > 3 ? total - 2 : 1).toInt();
+    final int fin = (inicio + 2) > total ? total : inicio + 2;
+    final bool hayMasAdelante = fin < total;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        bloqueTitulo,
-        const SizedBox(height: 8),
-        bloqueOrden,
+        _buildBotonPaginadorIcono(
+          Icons.chevron_left,
+          habilitado: _paginaActual > 1,
+          onTap: () => setState(() => _paginaActual--),
+        ),
+        const SizedBox(width: 6),
+        for (int p = inicio; p <= fin; p++) ...[
+          _buildBotonNumeroPagina(p),
+          const SizedBox(width: 6),
+        ],
+        if (hayMasAdelante) ...[
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4.0),
+            child: Text('...', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          const SizedBox(width: 6),
+        ],
+        _buildBotonPaginadorIcono(
+          Icons.chevron_right,
+          habilitado: _paginaActual < total,
+          onTap: () => setState(() => _paginaActual++),
+        ),
       ],
+    );
+  }
+
+  Widget _buildBotonNumeroPagina(int pagina) {
+    final bool activo = _paginaActual == pagina;
+    return InkWell(
+      onTap: () => setState(() => _paginaActual = pagina),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 34,
+        height: 34,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: activo ? AppColors.primary : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: activo ? null : sombraTarjeta,
+        ),
+        child: Text(
+          '$pagina',
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+            color: activo ? Colors.white : AppColors.textPrimary,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBotonPaginadorIcono(IconData icon, {required bool habilitado, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: habilitado ? onTap : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 34,
+        height: 34,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: sombraTarjeta,
+        ),
+        child: Icon(icon, size: 18, color: habilitado ? AppColors.textPrimary : const Color(0xFFCBD5E1)),
+      ),
     );
   }
 
@@ -1065,34 +1131,6 @@ class _ListaClientesScreenState extends State<ListaClientesScreen> {
           const SizedBox(height: 6),
           const Text('No hay clientes en la base de datos o el término ingresado no coincide.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
         ],
-      ),
-    );
-  }
-
-  Widget _buildBotonNumeroPagina(int pagina, {required bool habilitado}) {
-    final bool activo = _paginaActual == pagina;
-    return InkWell(
-      onTap: habilitado ? () => setState(() => _paginaActual = pagina) : null,
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        width: 32,
-        height: 32,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: activo ? AppColors.primary : (habilitado ? Colors.white : const Color(0xFFF8FAFC)),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: activo ? AppColors.primary : (habilitado ? AppColors.border : AppColors.border.withOpacity(0.5)),
-          ),
-        ),
-        child: Text(
-          '$pagina',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: activo ? Colors.white : (habilitado ? const Color(0xFF475569) : const Color(0xFFCBD5E1)),
-          ),
-        ),
       ),
     );
   }
