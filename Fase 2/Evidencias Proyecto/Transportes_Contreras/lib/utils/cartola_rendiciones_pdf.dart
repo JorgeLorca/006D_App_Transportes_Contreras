@@ -331,7 +331,7 @@ Future<Uint8List> _generarPdf({
             _horas(filas[i].horasSabado),
             filas[i].guiaPetroleo ?? '-',
             _clp(filas[i].montoTag),
-            _clp(filas[i].montoPeonetas),
+            _numeroEntero(filas[i].montoPeonetas), // Peonetas como número simple sin signo $
             filas[i].observacion ?? '-',
           ],
       ],
@@ -356,10 +356,10 @@ Future<Uint8List> _generarPdf({
     );
   }
 
-  /// Solo en la cartola anual: una fila por ciclo.
+  /// Solo en la cartola anual: una fila por ciclo (sin horas nocturnas ni sábado).
   pw.Widget tablaPorCiclo(List<CicloRendicionPdf> ciclos) {
     return tabla(
-      cabeceras: ['CICLO', 'PERÍODO', 'VIAJES', 'PALLETS', 'H. NOCT.', 'H. SÁB.', 'TAG', 'PEONETAS'],
+      cabeceras: ['CICLO', 'PERÍODO', 'VIAJES', 'PALLETS', 'TAG', 'PEONETAS'],
       datos: [
         for (final c in ciclos)
           () {
@@ -369,10 +369,8 @@ Future<Uint8List> _generarPdf({
               '${_dmy(c.desde)} al ${_dmy(c.hasta)}',
               '${t.viajes}',
               '${t.pallets}',
-              _horas(t.horasNocturnas),
-              _horas(t.horasSabado),
               _clp(t.tag),
-              _clp(t.peonetas),
+              _numeroEntero(t.peonetas), // Peonetas como número simple sin signo $
             ];
           }(),
       ],
@@ -381,12 +379,10 @@ Future<Uint8List> _generarPdf({
         1: const pw.FlexColumnWidth(),
         2: const pw.FixedColumnWidth(55),
         3: const pw.FixedColumnWidth(55),
-        4: const pw.FixedColumnWidth(60),
-        5: const pw.FixedColumnWidth(60),
-        6: const pw.FixedColumnWidth(80),
-        7: const pw.FixedColumnWidth(80),
+        4: const pw.FixedColumnWidth(80),
+        5: const pw.FixedColumnWidth(80),
       },
-      derecha: {2, 3, 4, 5, 6, 7},
+      derecha: {2, 3, 4, 5},
       textoVacio: 'Sin ciclos',
     );
   }
@@ -421,13 +417,9 @@ Future<Uint8List> _generarPdf({
           separador(),
           cajaResumen('TOTAL PALLETS', '${tot.pallets}'),
           separador(),
-          cajaResumen('H. NOCTURNAS', _horas(tot.horasNocturnas)),
-          separador(),
-          cajaResumen('H. SÁBADO', _horas(tot.horasSabado)),
-          separador(),
           cajaResumen('TOTAL TAG', _clp(tot.tag)),
           separador(),
-          cajaResumen('TOTAL PEONETAS', _clp(tot.peonetas)),
+          cajaResumen('TOTAL PEONETAS', _numeroEntero(tot.peonetas)), // Peonetas como número simple sin signo $ (sin horas nocturnas/sábado)
         ],
       ),
     );
@@ -477,21 +469,17 @@ Future<Uint8List> _generarPdf({
 }
 
 class _Totales {
-  const _Totales(this.viajes, this.pallets, this.horasNocturnas, this.horasSabado, this.tag, this.peonetas);
+  const _Totales(this.viajes, this.pallets, this.tag, this.peonetas);
 
   factory _Totales.de(List<ViajePlanilla> v) => _Totales(
         v.length,
         v.fold<int>(0, (s, x) => s + x.pallets),
-        v.fold<double>(0, (s, x) => s + x.horasNocturnas),
-        v.fold<double>(0, (s, x) => s + x.horasSabado),
         v.fold<int>(0, (s, x) => s + (x.montoTag ?? 0)),
         v.fold<int>(0, (s, x) => s + (x.montoPeonetas ?? 0)),
       );
 
   final int viajes;
   final int pallets;
-  final double horasNocturnas;
-  final double horasSabado;
   final int tag;
   final int peonetas;
 }
@@ -513,5 +501,8 @@ String _miles(num n) => n.toStringAsFixed(0).replaceAllMapped(RegExp(r'\B(?=(\d{
 
 /// Pesos chilenos: $12.500. Sin monto, un guion.
 String _clp(int? n) => n == null ? '-' : '\$${_miles(n)}';
+
+/// Formato de número entero simple para peonetas (sin símbolo de peso)
+String _numeroEntero(int? n) => n == null ? '-' : n.toString();
 
 String _horas(double h) => h == h.roundToDouble() ? _miles(h) : h.toStringAsFixed(1).replaceAll('.', ',');
